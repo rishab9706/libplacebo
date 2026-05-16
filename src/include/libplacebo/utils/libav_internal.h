@@ -893,6 +893,24 @@ PL_LIBAV_API void pl_frame_copy_stream_props(struct pl_frame *out,
 #undef pl_av_stream_get_side_data
 
 #ifdef PL_HAVE_LAV_DOLBY_VISION
+static bool pl_avdovi_nlq_is_trivial(const AVDOVIRpuDataHeader *header,
+                                     const AVDOVINLQParams *nlq)
+{
+    return nlq->nlq_offset == 0 &&
+           nlq->vdr_in_max == (1ULL << header->coef_log2_denom) &&
+           nlq->linear_deadzone_slope == 0 &&
+           nlq->linear_deadzone_threshold == 0;
+}
+
+static bool pl_avdovi_mapping_nlq_is_trivial(const AVDOVIRpuDataHeader *header,
+                                             const AVDOVIDataMapping *mapping)
+{
+    return mapping->nlq_method_idc == AV_DOVI_NLQ_LINEAR_DZ &&
+           pl_avdovi_nlq_is_trivial(header, &mapping->nlq[0]) &&
+           pl_avdovi_nlq_is_trivial(header, &mapping->nlq[1]) &&
+           pl_avdovi_nlq_is_trivial(header, &mapping->nlq[2]);
+}
+
 PL_LIBAV_API void pl_map_dovi_metadata(struct pl_dovi_metadata *out,
                                        const AVDOVIMetadata *data)
 {
@@ -944,24 +962,6 @@ PL_LIBAV_API void pl_map_dovi_metadata(struct pl_dovi_metadata *out,
             }
         }
     }
-}
-
-static bool pl_avdovi_nlq_is_trivial(const AVDOVIRpuDataHeader *header,
-                                     const AVDOVINLQParams *nlq)
-{
-    return nlq->nlq_offset == 0 &&
-           nlq->vdr_in_max == (1ULL << header->coef_log2_denom) &&
-           nlq->linear_deadzone_slope == 0 &&
-           nlq->linear_deadzone_threshold == 0;
-}
-
-static bool pl_avdovi_mapping_nlq_is_trivial(const AVDOVIRpuDataHeader *header,
-                                             const AVDOVIDataMapping *mapping)
-{
-    return mapping->nlq_method_idc == AV_DOVI_NLQ_LINEAR_DZ &&
-           pl_avdovi_nlq_is_trivial(header, &mapping->nlq[0]) &&
-           pl_avdovi_nlq_is_trivial(header, &mapping->nlq[1]) &&
-           pl_avdovi_nlq_is_trivial(header, &mapping->nlq[2]);
 }
 
 PL_LIBAV_API bool pl_avdovi_metadata_supported(const AVDOVIMetadata *metadata)
