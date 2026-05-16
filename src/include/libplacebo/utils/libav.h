@@ -143,8 +143,7 @@ PL_LIBAV_API void pl_map_avdovi_metadata(struct pl_color_space *color,
                                          const AVDOVIMetadata *metadata);
 
 // Helper function to check if Dolby Vision metadata can be mapped.
-// Returns true if the `AVDOVIRpuDataHeader` `disable_residual_flag` field is
-// not zero or if the NLQ parameters are trivial.
+// Always return `true`, as FEL is currently fully supported.
 PL_LIBAV_API bool pl_avdovi_metadata_supported(const AVDOVIMetadata *metadata);
 #endif
 

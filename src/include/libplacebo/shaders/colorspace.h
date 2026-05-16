@@ -52,7 +52,7 @@ struct pl_color_decode_args {
 
     // Optional sub-shader producing the enhancement-layer. The expected format
     // and output of the shader depends on the EL being used, based on repr.
-    // Currently unused.
+    // Currently only Dolby Vision EL is supported.
     pl_shader enhancement_layer;
 };
 

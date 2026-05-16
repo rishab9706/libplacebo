@@ -533,9 +533,9 @@ struct pl_frame {
 
     // Optional enhancement layer for layered video formats. When set, points
     // to a fully-described pl_frame whose planes are composed onto this
-    // (base layer) frame. Composition math is driven by metadata on the base frame.
-    //
-    // Currently unused.
+    // (base layer) frame. Composition math is driven by metadata on the base
+    // frame. Currently used only for Dolby Vision Profile 7 FEL, gated by
+    // `repr.dovi->nlq_active`; ignored otherwise.
     const struct pl_frame *enhancement_layer;
 
     // For interlaced frames. If set, this `pl_frame` corresponds to a single

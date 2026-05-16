@@ -994,18 +994,8 @@ PL_LIBAV_API void pl_map_dovi_metadata(struct pl_dovi_metadata *out,
 
 PL_LIBAV_API bool pl_avdovi_metadata_supported(const AVDOVIMetadata *metadata)
 {
-    const AVDOVIRpuDataHeader *header;
-    const AVDOVIDataMapping *mapping;
-
-    header = av_dovi_get_header(metadata);
-    if (header->disable_residual_flag)
-        return true;
-
-    mapping = av_dovi_get_mapping(metadata);
-    if (pl_avdovi_mapping_nlq_is_trivial(header, mapping))
-        return true;
-
-    return false;
+    (void)metadata;
+    return true;
 }
 
 PL_LIBAV_API void pl_map_avdovi_metadata(struct pl_color_space *color,
