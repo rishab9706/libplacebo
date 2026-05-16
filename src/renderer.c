@@ -365,6 +365,9 @@ struct pass_state {
     // Cached copies of the `prev` / `next` frames, for deinterlacing.
     struct pl_frame prev, next;
 
+    // Cached copy of the `image->enhancement_layer`, so we can acquire/release it.
+    struct pl_frame enhancement_layer;
+
     // Some extra plane metadata, inferred from `planes`
     enum plane_type src_type[4];
     int src_ref, dst_ref; // index into `planes`
@@ -376,7 +379,7 @@ struct pass_state {
 
     // Map of acquired frames
     struct {
-        bool target, image, prev, next;
+        bool target, image, prev, next, enhancement_layer;
     } acquired;
 };
 
@@ -3247,6 +3250,7 @@ static void pass_uninit(struct pass_state *pass)
 {
     pl_renderer rr = pass->rr;
     pl_dispatch_abort(rr->dp, &pass->img.sh);
+    release_frame(pass, &pass->enhancement_layer, &pass->acquired.enhancement_layer);
     release_frame(pass, &pass->next, &pass->acquired.next);
     release_frame(pass, &pass->prev, &pass->acquired.prev);
     release_frame(pass, &pass->image, &pass->acquired.image);
@@ -3367,6 +3371,19 @@ static bool pass_init(struct pass_state *pass, bool acquire_image)
             image->next = &pass->next;
             if (!acquire_frame(pass, &pass->next, &pass->acquired.next))
                 goto error;
+        }
+        if (image->enhancement_layer) {
+            bool acquire_el = false;
+            if (acquire_el) {
+                pass->enhancement_layer = *image->enhancement_layer;
+                image->enhancement_layer = &pass->enhancement_layer;
+                if (!acquire_frame(pass, &pass->enhancement_layer,
+                                   &pass->acquired.enhancement_layer))
+                    goto error;
+            } else {
+                // EL was attached but won't be composed, drop it.
+                image->enhancement_layer = NULL;
+            }
         }
     }
 

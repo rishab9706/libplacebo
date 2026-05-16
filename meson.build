@@ -12,6 +12,7 @@ project('libplacebo', ['c', 'cpp'],
     7,
     # API version
     {
+      '367': 'add pl_frame.enhancement_layer',
       '366': 'add pl_dovi_metadata.nlq_active/nlq for FEL composition',
       '365': 'add pl_vulkan_queue.flags',
       '364': 'add pl_avdovi_metadata_supported, lift checks out of pl_map_avdovi_metadata, extend pl_avframe_params',
