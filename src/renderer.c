@@ -75,6 +75,7 @@ struct pl_renderer_t {
     struct sampler sampler_contrast;
     struct sampler samplers_src[4];
     struct sampler samplers_dst[4];
+    struct sampler samplers_el[4];
 
     // Temporary storage for vertex/index data
     PL_ARRAY(struct osd_vertex) osd_vertices;
@@ -172,6 +173,8 @@ void pl_renderer_destroy(pl_renderer *p_rr)
         sampler_destroy(rr, &rr->samplers_src[i]);
     for (int i = 0; i < PL_ARRAY_SIZE(rr->samplers_dst); i++)
         sampler_destroy(rr, &rr->samplers_dst[i]);
+    for (int i = 0; i < PL_ARRAY_SIZE(rr->samplers_el); i++)
+        sampler_destroy(rr, &rr->samplers_el[i]);
 
     // Free fallback ICC profiles
     for (int i = 0; i < PL_ARRAY_SIZE(rr->icc_fallback); i++)
@@ -1640,10 +1643,8 @@ static pl_shader sample_el(struct pass_state *pass, const struct pl_frame *el)
                  src.rect.x0, src.rect.y0, src.rect.x1, src.rect.y1);
 
         pl_shader plane_sh = pl_dispatch_begin_ex(rr->dp, true);
-        if (!pl_shader_sample_direct(plane_sh, &src)) {
-            pl_dispatch_abort(rr->dp, &plane_sh);
-            return NULL;
-        }
+        dispatch_sampler(pass, plane_sh, &rr->samplers_el[i], SAMPLER_PLANE,
+                         NULL, &src);
 
         ident_t sub = sh_subpass(sh, plane_sh);
         pl_dispatch_abort(rr->dp, &plane_sh);
