@@ -49,6 +49,11 @@ struct pl_color_decode_args {
     // Color adjustment parameters. If NULL, defaults to
     // `&pl_color_adjustment_neutral`.
     const struct pl_color_adjustment *color_adjustment;
+
+    // Optional sub-shader producing the enhancement-layer. The expected format
+    // and output of the shader depends on the EL being used, based on repr.
+    // Currently unused.
+    pl_shader enhancement_layer;
 };
 
 #define pl_color_decode_args(...) (&(struct pl_color_decode_args) { __VA_ARGS__ })
