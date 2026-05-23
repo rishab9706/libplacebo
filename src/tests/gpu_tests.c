@@ -676,7 +676,9 @@ static void pl_shader_tests(pl_gpu gpu)
         sh = pl_dispatch_begin(dp);
         pl_shader_sample_nearest(sh, pl_sample_src( .tex = src ));
         pl_shader_encode_color(sh, &(struct pl_color_repr) { .sys = sys });
-        pl_shader_decode_color(sh, &(struct pl_color_repr) { .sys = sys }, NULL);
+        pl_shader_decode_color_ex(sh, pl_color_decode_args(
+            .repr = &(struct pl_color_repr) { .sys = sys },
+        ));
         REQUIRE(pl_dispatch_finish(dp, &(struct pl_dispatch_params) {
             .shader = &sh,
             .target = fbo,
@@ -865,7 +867,7 @@ static void pl_shader_tests(pl_gpu gpu)
 
     sh = pl_dispatch_begin(dp);
     pl_shader_sample_direct(sh, pl_sample_src( .tex = src ));
-    pl_shader_decode_color(sh, &repr, NULL);
+    pl_shader_decode_color_ex(sh, pl_color_decode_args( .repr = &repr ));
     REQUIRE(pl_dispatch_finish(dp, &(struct pl_dispatch_params) {
         .shader = &sh,
         .target = fbo,

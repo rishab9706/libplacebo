@@ -272,9 +272,12 @@ void pl_shader_dovi_reshape(pl_shader sh, const struct pl_dovi_metadata *data)
 #endif
 }
 
-void pl_shader_decode_color(pl_shader sh, struct pl_color_repr *repr,
-                            const struct pl_color_adjustment *params)
+void pl_shader_decode_color_ex(pl_shader sh,
+                               const struct pl_color_decode_args *args)
 {
+    struct pl_color_repr *repr = args->repr;
+    const struct pl_color_adjustment *params = args->color_adjustment;
+
     if (!sh_require(sh, PL_SHADER_SIG_COLOR, 0, 0))
         return;
 
@@ -457,6 +460,15 @@ void pl_shader_decode_color(pl_shader sh, struct pl_color_repr *repr,
 
     pl_shader_set_alpha(sh, repr, PL_ALPHA_INDEPENDENT);
     GLSL("}\n");
+}
+
+void pl_shader_decode_color(pl_shader sh, struct pl_color_repr *repr,
+                            const struct pl_color_adjustment *params)
+{
+    pl_shader_decode_color_ex(sh, pl_color_decode_args(
+        .repr             = repr,
+        .color_adjustment = params,
+    ));
 }
 
 void pl_shader_encode_color(pl_shader sh, const struct pl_color_repr *repr)

@@ -967,7 +967,7 @@ static void draw_overlays(struct pass_state *pass, pl_tex fbo,
         };
 
         sh->output = PL_SHADER_SIG_COLOR;
-        pl_shader_decode_color(sh, &ol.repr, NULL);
+        pl_shader_decode_color_ex(sh, pl_color_decode_args( .repr = &ol.repr ));
         if (target->icc)
             color.transfer = PL_COLOR_TRC_LINEAR;
         // Copy overlay color to infer it only if matching with the target video
@@ -1942,7 +1942,10 @@ static bool pass_read_image(struct pass_state *pass)
             pl_shader_linearize(sh, &pass->img.color);
             pass->img.color.transfer = PL_COLOR_TRC_LINEAR;
         }
-        pl_shader_decode_color(sh, &pass->img.repr, params->color_adjustment);
+        pl_shader_decode_color_ex(sh, pl_color_decode_args(
+            .repr             = &pass->img.repr,
+            .color_adjustment = params->color_adjustment,
+        ));
     }
 
     if (lut_type == PL_LUT_NORMALIZED)
