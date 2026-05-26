@@ -48,6 +48,11 @@
 # include <libplacebo/vulkan.h>
 #endif
 
+#define COMP_MAX(x, y) ((x) > (y) ? (x) : (y))
+#define COMP_MAX3(x, y, z) COMP_MAX(COMP_MAX(x, y), z)
+#define COMP_MIN(x, y) ((x) < (y) ? (x) : (y))
+#define COMP_ABS(x) ((x) < 0 ? -(x) : (x))
+
 PL_LIBAV_API enum pl_color_system pl_system_from_av(enum AVColorSpace spc)
 {
     switch (spc) {
@@ -1079,10 +1084,6 @@ struct pl_avframe_priv {
     struct pl_dovi_metadata dovi; // backing storage for per-frame dovi metadata
     pl_tex planar; // for planar vulkan textures
 };
-
-#define COMP_MAX(x, y) ((x) > (y) ? (x) : (y))
-#define COMP_MIN(x, y) ((x) < (y) ? (x) : (y))
-#define COMP_ABS(x) ((x) < 0 ? -(x) : (x))
 
 static void pl_map_hwframe_bit_encoding(struct pl_bit_encoding *out_bits,
                                         enum AVPixelFormat pix_fmt)
