@@ -987,7 +987,8 @@ PL_LIBAV_API void pl_map_avdovi_metadata(struct pl_color_space *color,
 {
     const AVDOVIColorMetadata *dovi_color;
 #if LIBAVUTIL_VERSION_INT >= AV_VERSION_INT(59, 12, 100)
-    const AVDOVIDmData *dovi_ext;
+    const AVDOVIDmData *dovi_ext_l1;
+    const AVDOVIDmData *dovi_ext_l3;
 #endif
     if (!color || !repr || !dovi)
         return;
@@ -1005,9 +1006,17 @@ PL_LIBAV_API void pl_map_avdovi_metadata(struct pl_color_space *color,
         pl_hdr_rescale(PL_HDR_PQ, PL_HDR_NITS, dovi_color->source_max_pq / 4095.0f);
 
 #if LIBAVUTIL_VERSION_INT >= AV_VERSION_INT(59, 12, 100)
-    if ((dovi_ext = av_dovi_find_level(metadata, 1))) {
-        color->hdr.max_pq_y = dovi_ext->l1.max_pq / 4095.0f;
-        color->hdr.avg_pq_y = dovi_ext->l1.avg_pq / 4095.0f;
+    if ((dovi_ext_l1 = av_dovi_find_level(metadata, 1))) {
+        float max_pq_offset = 0.0f;
+        float avg_pq_offset = 0.0f;
+
+        if ((dovi_ext_l3 = av_dovi_find_level(metadata, 3))) {
+            max_pq_offset = dovi_ext_l3->l3.max_pq_offset - 2048;
+            avg_pq_offset = dovi_ext_l3->l3.avg_pq_offset - 2048;
+        }
+
+        color->hdr.max_pq_y = (dovi_ext_l1->l1.max_pq + max_pq_offset) / 4095.0f;
+        color->hdr.avg_pq_y = (dovi_ext_l1->l1.avg_pq + avg_pq_offset) / 4095.0f;
     }
 #endif
 }
