@@ -3,6 +3,8 @@
 /TAGS
 /demos/3rdparty
 /3rdparty
+/.vscode
+.clangd
 *.exe
 *.o
 .cache
