@@ -2045,9 +2045,16 @@ static bool pass_scale_main(struct pass_state *pass)
         pl_shader_delinearize(img_sh(pass, img), &img->color);
     }
 
+    // Check if we need to delinearize
+     bool need_delinearize = (use_linear &&
+                            pl_color_space_is_hdr(&img->color) &&
+                            (info.dir == SAMPLER_DOWN) &&
+                            params->peak_detect_params);
+
     if (use_linear || use_sigmoid) {
         pl_shader_linearize(img_sh(pass, img), &img->color);
-        img->color.transfer = PL_COLOR_TRC_LINEAR;
+        if (!need_delinearize)
+            img->color.transfer = PL_COLOR_TRC_LINEAR;
         pass_hook(pass, img, PL_HOOK_LINEAR);
     }
 
@@ -2076,6 +2083,9 @@ static bool pass_scale_main(struct pass_state *pass)
     if (use_sigmoid)
         pl_shader_unsigmoidize(img_sh(pass, img), params->sigmoid_params);
 
+    if (need_delinearize)
+        pl_shader_delinearize(img_sh(pass, img), &img->color);
+    
 done:
     if (info.dir != SAMPLER_UP)
         hdr_update_peak(pass);
