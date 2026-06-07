@@ -1196,9 +1196,9 @@ static void hdr_update_peak(struct pass_state *pass)
     if (!rr->gpu->limits.max_ssbo_size)
         goto cleanup;
 
-    float max_peak = pl_color_transfer_nominal_peak(pass->img.color.transfer) *
+    float max_peak = pl_color_transfer_nominal_peak(pass->image.color.transfer) *
                      PL_COLOR_SDR_WHITE;
-    if (pass->img.color.transfer == PL_COLOR_TRC_HLG)
+    if (pass->image.color.transfer == PL_COLOR_TRC_HLG)
         max_peak = pass->img.color.hdr.max_luma;
     if (max_peak <= pass->target.color.hdr.max_luma + 1e-6)
         goto cleanup; // no adaptation needed
