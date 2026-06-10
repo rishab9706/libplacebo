@@ -1184,7 +1184,10 @@ static void hdr_update_peak(struct pass_state *pass)
 {
     const struct pl_render_params *params = pass->params;
     pl_renderer rr = pass->rr;
-    if (!params->peak_detect_params || !pl_color_space_is_hdr(&pass->img.color))
+
+    // Use pass->image than pass->img to deal with cases that input is HDR
+    // content but already linearized when scaling.
+    if (!params->peak_detect_params || !pl_color_space_is_hdr(&pass->image.color))
         goto cleanup;
 
     if (rr->errors & PL_RENDER_ERR_PEAK_DETECT)
