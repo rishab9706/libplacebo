@@ -1591,6 +1591,125 @@ error:
     pl_tex_destroy(gpu, &fbo);
 }
 
+// Verify that MSB-aligned output (e.g. P010) encodes the same value as the
+// LSB-aligned equivalent (e.g. yuv420p10), with zero padding bits.
+static void pl_render_bits_tests(pl_gpu gpu)
+{
+    pl_renderer rr = NULL;
+    pl_tex src_tex = NULL, lsb_tex = NULL, msb_tex = NULL;
+    printf("pl_render_bits_tests:\n");
+
+    // Need a true 16-bit UNORM render target we can read back bit-exactly
+    pl_fmt fmt = pl_find_fmt(gpu, PL_FMT_UNORM, 4, 16, 16,
+                             PL_FMT_CAP_RENDERABLE | PL_FMT_CAP_HOST_READABLE);
+    if (!fmt || fmt->component_depth[0] != 16) {
+        printf("- no suitable 16-bit UNORM format, skipping\n");
+        return;
+    }
+
+    enum { width = 64, height = 64 };
+
+    static uint16_t src_data[height][width][4];
+    for (int y = 0; y < height; y++) {
+        for (int x = 0; x < width; x++) {
+            uint16_t v = (uint16_t) ((x + y * width) * 0xFFFFu / (width * height - 1));
+            for (int c = 0; c < 4; c++)
+                src_data[y][x][c] = v;
+        }
+    }
+
+    struct pl_plane src_plane = {0};
+    struct pl_plane_data src_pdata = {
+        .type           = PL_FMT_UNORM,
+        .width          = width,
+        .height         = height,
+        .component_size = { 16, 16, 16, 16 },
+        .component_map  = { 0, 1, 2, 3 },
+        .pixel_stride   = 4 * sizeof(uint16_t),
+        .pixels         = src_data,
+    };
+    if (!pl_upload_plane(gpu, &src_plane, &src_tex, &src_pdata))
+        goto error;
+
+    lsb_tex = pl_tex_create(gpu, pl_tex_params(
+        .w = width, .h = height, .format = fmt,
+        .renderable = true, .host_readable = true,
+    ));
+    msb_tex = pl_tex_create(gpu, pl_tex_params(
+        .w = width, .h = height, .format = fmt,
+        .renderable = true, .host_readable = true,
+    ));
+    REQUIRE(lsb_tex);
+    REQUIRE(msb_tex);
+
+    rr = pl_renderer_create(gpu->log, gpu);
+    REQUIRE(rr);
+
+    struct pl_frame image = {
+        .num_planes = 1,
+        .planes     = { src_plane },
+        .repr       = pl_color_repr_rgb,
+        .color      = pl_color_space_srgb,
+    };
+
+    struct pl_frame target = {
+        .num_planes = 1,
+        .planes     = {{
+            .components        = 3,
+            .component_mapping = {0, 1, 2},
+        }},
+        .repr = {
+            .sys    = PL_COLOR_SYSTEM_BT_2020_NC,
+            .levels = PL_COLOR_LEVELS_LIMITED,
+            .bits   = { .sample_depth = 16, .color_depth = 10 },
+        },
+        .color = pl_color_space_srgb,
+    };
+
+    static uint16_t lsb_out[height][width][4];
+    static uint16_t msb_out[height][width][4];
+
+    // Dithering puts both encodings on the same 10-bit grid, so they must match
+    // exactly.
+    for (int dither = 1; dither >= 0; dither--) {
+        struct pl_render_params params = pl_render_default_params;
+        if (!dither)
+            params.dither_params = NULL;
+
+        target.planes[0].texture = lsb_tex;
+        target.repr.bits.bit_shift = 0;
+        REQUIRE(pl_render_image(rr, &image, &target, &params));
+        REQUIRE(pl_renderer_get_errors(rr).errors == PL_RENDER_ERR_NONE);
+
+        target.planes[0].texture = msb_tex;
+        target.repr.bits.bit_shift = 6;
+        REQUIRE(pl_render_image(rr, &image, &target, &params));
+        REQUIRE(pl_renderer_get_errors(rr).errors == PL_RENDER_ERR_NONE);
+
+        REQUIRE(pl_tex_download(gpu, pl_tex_transfer_params(.tex = lsb_tex, .ptr = lsb_out)));
+        REQUIRE(pl_tex_download(gpu, pl_tex_transfer_params(.tex = msb_tex, .ptr = msb_out)));
+
+        for (int y = 0; y < height; y++) {
+            for (int x = 0; x < width; x++) {
+                for (int c = 0; c < 3; c++) {
+                    int lsb = lsb_out[y][x][c];
+                    int msb = msb_out[y][x][c];
+                    REQUIRE_CMP(lsb, <=, 0x3FF, "d");    // fits in 10 bits
+                    REQUIRE_CMP(msb & 0x3F, ==, 0, "d"); // padding bits are zero
+                    if (dither)
+                        REQUIRE_CMP(msb >> 6, ==, lsb, "d");
+                }
+            }
+        }
+    }
+
+error:
+    pl_renderer_destroy(&rr);
+    pl_tex_destroy(gpu, &src_tex);
+    pl_tex_destroy(gpu, &lsb_tex);
+    pl_tex_destroy(gpu, &msb_tex);
+}
+
 static struct pl_hook_res noop_hook(void *priv, const struct pl_hook_params *params)
 {
     return (struct pl_hook_res) {0};
@@ -1842,6 +1961,7 @@ void gpu_shader_tests(pl_gpu gpu)
     pl_shader_tests(gpu);
     pl_scaler_tests(gpu);
     pl_render_tests(gpu);
+    pl_render_bits_tests(gpu);
     pl_ycbcr_tests(gpu);
 
     REQUIRE(!pl_gpu_is_failed(gpu));
