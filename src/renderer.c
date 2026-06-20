@@ -2717,6 +2717,16 @@ static bool pass_output_target(struct pass_state *pass)
     bool need_blend = background != PL_CLEAR_SKIP || !has_alpha;
     if (img->comps == 4 && need_blend) {
         pl_shader_set_alpha(sh, &img->repr, PL_ALPHA_PREMULTIPLIED);
+
+        // Snap alpha value to 0 or 1 when it's close. This avoids blending in
+        // tiles/noise when alpha value is not exact value, due to resampling.
+        if (background == PL_CLEAR_COLOR || background == PL_CLEAR_TILES) {
+            const float eps = 1.0f / 1024.0f; // one fp16 ULP near unity
+            GLSL("color.a = mix(color.a * step("$", color.a), 1.0, "
+                 "              step("$", color.a)); \n",
+                 SH_FLOAT(eps), SH_FLOAT(1.0f - eps));
+        }
+
         switch (background) {
         case PL_CLEAR_COLOR:;
             float bg_color[3];
