@@ -862,13 +862,19 @@ void pl_shader_sigmoidize(pl_shader sh, const struct pl_sigmoid_params *params)
     float offset = 1.0 / (1 + expf(slope * center));
     float scale  = 1.0 / (1 + expf(slope * (center - 1))) - offset;
 
+    // Use a logit transform with an offset bias. This is algebraically
+    // equivalent to the center-based form, but is more numerically stable and
+    // avoids the less robust log(1/x - 1).
     GLSL("// pl_shader_sigmoidize                                 \n"
+         "{                                                       \n"
          "color.rgb = clamp(color.rgb, 0.0, 1.0);                 \n"
-         "color.rgb = vec3("$") - vec3("$") *                     \n"
-         "    log(vec3(1.0) / (color.rgb * vec3("$") + vec3("$")) \n"
-         "        - vec3(1.0));                                   \n",
-         SH_FLOAT(center), SH_FLOAT(1.0 / slope),
-         SH_FLOAT(scale), SH_FLOAT(offset));
+         "vec3 sig = color.rgb * vec3("$") + vec3("$");           \n"
+         "color.rgb = (log(sig / (1.0 - sig))                     \n"
+         "             - log("$" / (1.0 - "$"))) * vec3("$");     \n"
+         "}                                                       \n",
+         SH_FLOAT(scale), SH_FLOAT(offset),
+         SH_FLOAT(offset), SH_FLOAT(offset),
+         SH_FLOAT(1.0 / slope));
 }
 
 void pl_shader_unsigmoidize(pl_shader sh, const struct pl_sigmoid_params *params)
@@ -884,13 +890,16 @@ void pl_shader_unsigmoidize(pl_shader sh, const struct pl_sigmoid_params *params
     float scale  = 1.0 / (1 + expf(slope * (center - 1))) - offset;
 
     GLSL("// pl_shader_unsigmoidize                                 \n"
-         "color.rgb = clamp(color.rgb, 0.0, 1.0);                    \n"
-         "color.rgb = vec3("$") /                                    \n"
-         "    (vec3(1.0) + exp(vec3("$") * (vec3("$") - color.rgb))) \n"
-         "    - vec3("$");                                           \n",
-         SH_FLOAT(1.0 / scale),
-         SH_FLOAT(slope), SH_FLOAT(center),
-         SH_FLOAT(offset / scale));
+         "{                                                         \n"
+         "color.rgb = clamp(color.rgb, 0.0, 1.0);                   \n"
+         "float bias = log("$" / (1.0 - "$"));                      \n"
+         "color.rgb = (vec3(1.0) / (vec3(1.0) +                     \n"
+         "                exp(-(color.rgb * vec3("$") + bias)))     \n"
+         "             - 1.0 / (1.0 + exp(-bias))) * vec3("$");     \n"
+         "}                                                         \n",
+         SH_FLOAT(offset), SH_FLOAT(offset),
+         SH_FLOAT(slope),
+         SH_FLOAT(1.0 / scale));
 }
 
 const struct pl_peak_detect_params pl_peak_detect_default_params = { PL_PEAK_DETECT_DEFAULTS };
