@@ -603,6 +603,8 @@ void pl_shader_linearize(pl_shader sh, const struct pl_color_space *csp)
         .out_max    = &csp_max,
     ));
 
+    csp_min = pl_signal_black(csp_min, PL_HDR_NORM);
+
     // Note that this clamp may technically violate the definition of
     // ITU-R BT.2100, which allows for sub-blacks and super-whites to be
     // displayed on the display where such would be possible. That said, the
@@ -735,6 +737,8 @@ void pl_shader_delinearize(pl_shader sh, const struct pl_color_space *csp)
         .out_min    = &csp_min,
         .out_max    = &csp_max,
     ));
+
+    csp_min = pl_signal_black(csp_min, PL_HDR_NORM);
 
     GLSL("// pl_shader_delinearize \n");
     if (pl_color_space_is_black_scaled(csp) &&
@@ -1680,6 +1684,11 @@ void pl_shader_color_map_ex(pl_shader sh, const struct pl_color_map_params *para
     if (fabs(tone.input_min - tone.output_min) < 1e-6)
         tone.output_min = tone.input_min;
 
+    // Don't clamp/anchor the tone curve to the infinite-contrast sentinel,
+    // otherwise an active tone map re-lifts true black off zero.
+    tone.input_min  = pl_signal_black(tone.input_min,  tone.input_scaling);
+    tone.output_min = pl_signal_black(tone.output_min, tone.output_scaling);
+
     if (!params->inverse_tone_mapping) {
         // Never exceed the source unless requested, but still allow
         // black point adaptation
@@ -1713,6 +1722,8 @@ void pl_shader_color_map_ex(pl_shader sh, const struct pl_color_map_params *para
         .out_min    = &gamut.min_luma,
         .out_max    = &gamut.max_luma,
     ));
+
+    gamut.min_luma = pl_signal_black(gamut.min_luma, PL_HDR_PQ);
 
     // Clip the gamut mapping output to the input gamut if disabled
     if (!params->gamut_expansion && gamut.function->bidirectional) {
