@@ -603,6 +603,8 @@ void pl_shader_linearize(pl_shader sh, const struct pl_color_space *csp)
         .out_max    = &csp_max,
     ));
 
+    csp_min = pl_signal_black(csp_min, PL_HDR_NORM);
+
     // Note that this clamp may technically violate the definition of
     // ITU-R BT.2100, which allows for sub-blacks and super-whites to be
     // displayed on the display where such would be possible. That said, the
@@ -736,6 +738,8 @@ void pl_shader_delinearize(pl_shader sh, const struct pl_color_space *csp)
         .out_max    = &csp_max,
     ));
 
+    csp_min = pl_signal_black(csp_min, PL_HDR_NORM);
+
     GLSL("// pl_shader_delinearize \n");
     if (pl_color_space_is_black_scaled(csp) &&
         csp->transfer != PL_COLOR_TRC_HLG &&
@@ -862,13 +866,19 @@ void pl_shader_sigmoidize(pl_shader sh, const struct pl_sigmoid_params *params)
     float offset = 1.0 / (1 + expf(slope * center));
     float scale  = 1.0 / (1 + expf(slope * (center - 1))) - offset;
 
+    // Use a logit transform with an offset bias. This is algebraically
+    // equivalent to the center-based form, but is more numerically stable and
+    // avoids the less robust log(1/x - 1).
     GLSL("// pl_shader_sigmoidize                                 \n"
+         "{                                                       \n"
          "color.rgb = clamp(color.rgb, 0.0, 1.0);                 \n"
-         "color.rgb = vec3("$") - vec3("$") *                     \n"
-         "    log(vec3(1.0) / (color.rgb * vec3("$") + vec3("$")) \n"
-         "        - vec3(1.0));                                   \n",
-         SH_FLOAT(center), SH_FLOAT(1.0 / slope),
-         SH_FLOAT(scale), SH_FLOAT(offset));
+         "vec3 sig = color.rgb * vec3("$") + vec3("$");           \n"
+         "color.rgb = (log(sig / (1.0 - sig))                     \n"
+         "             - log("$" / (1.0 - "$"))) * vec3("$");     \n"
+         "}                                                       \n",
+         SH_FLOAT(scale), SH_FLOAT(offset),
+         SH_FLOAT(offset), SH_FLOAT(offset),
+         SH_FLOAT(1.0 / slope));
 }
 
 void pl_shader_unsigmoidize(pl_shader sh, const struct pl_sigmoid_params *params)
@@ -884,13 +894,16 @@ void pl_shader_unsigmoidize(pl_shader sh, const struct pl_sigmoid_params *params
     float scale  = 1.0 / (1 + expf(slope * (center - 1))) - offset;
 
     GLSL("// pl_shader_unsigmoidize                                 \n"
-         "color.rgb = clamp(color.rgb, 0.0, 1.0);                    \n"
-         "color.rgb = vec3("$") /                                    \n"
-         "    (vec3(1.0) + exp(vec3("$") * (vec3("$") - color.rgb))) \n"
-         "    - vec3("$");                                           \n",
-         SH_FLOAT(1.0 / scale),
-         SH_FLOAT(slope), SH_FLOAT(center),
-         SH_FLOAT(offset / scale));
+         "{                                                         \n"
+         "color.rgb = clamp(color.rgb, 0.0, 1.0);                   \n"
+         "float bias = log("$" / (1.0 - "$"));                      \n"
+         "color.rgb = (vec3(1.0) / (vec3(1.0) +                     \n"
+         "                exp(-(color.rgb * vec3("$") + bias)))     \n"
+         "             - 1.0 / (1.0 + exp(-bias))) * vec3("$");     \n"
+         "}                                                         \n",
+         SH_FLOAT(offset), SH_FLOAT(offset),
+         SH_FLOAT(slope),
+         SH_FLOAT(1.0 / scale));
 }
 
 const struct pl_peak_detect_params pl_peak_detect_default_params = { PL_PEAK_DETECT_DEFAULTS };
@@ -1671,6 +1684,11 @@ void pl_shader_color_map_ex(pl_shader sh, const struct pl_color_map_params *para
     if (fabs(tone.input_min - tone.output_min) < 1e-6)
         tone.output_min = tone.input_min;
 
+    // Don't clamp/anchor the tone curve to the infinite-contrast sentinel,
+    // otherwise an active tone map re-lifts true black off zero.
+    tone.input_min  = pl_signal_black(tone.input_min,  tone.input_scaling);
+    tone.output_min = pl_signal_black(tone.output_min, tone.output_scaling);
+
     if (!params->inverse_tone_mapping) {
         // Never exceed the source unless requested, but still allow
         // black point adaptation
@@ -1704,6 +1722,8 @@ void pl_shader_color_map_ex(pl_shader sh, const struct pl_color_map_params *para
         .out_min    = &gamut.min_luma,
         .out_max    = &gamut.max_luma,
     ));
+
+    gamut.min_luma = pl_signal_black(gamut.min_luma, PL_HDR_PQ);
 
     // Clip the gamut mapping output to the input gamut if disabled
     if (!params->gamut_expansion && gamut.function->bidirectional) {

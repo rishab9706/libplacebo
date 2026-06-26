@@ -2717,6 +2717,16 @@ static bool pass_output_target(struct pass_state *pass)
     bool need_blend = background != PL_CLEAR_SKIP || !has_alpha;
     if (img->comps == 4 && need_blend) {
         pl_shader_set_alpha(sh, &img->repr, PL_ALPHA_PREMULTIPLIED);
+
+        // Snap alpha value to 0 or 1 when it's close. This avoids blending in
+        // tiles/noise when alpha value is not exact value, due to resampling.
+        if (background == PL_CLEAR_COLOR || background == PL_CLEAR_TILES) {
+            const float eps = 1.0f / 1024.0f; // one fp16 ULP near unity
+            GLSL("color.a = mix(color.a * step("$", color.a), 1.0, "
+                 "              step("$", color.a)); \n",
+                 SH_FLOAT(eps), SH_FLOAT(1.0f - eps));
+        }
+
         switch (background) {
         case PL_CLEAR_COLOR:;
             float bg_color[3];
@@ -2908,10 +2918,22 @@ static bool pass_output_target(struct pass_state *pass)
             rr->prev_dither = applied_dither;
         }
 
-        GLSL("color.%s *= vec%d(1.0 / "$"); \n",
-             params->blend_params ? "rgb" : "rgba",
-             params->blend_params ? 3 : 4,
-             SH_FLOAT(scale));
+        const char *comps = params->blend_params ? "rgb" : "rgba";
+        const int num_comps = params->blend_params ? 3 : 4;
+        const int bit_shift = target->repr.bits.bit_shift;
+        const int sample_depth = PL_DEF(target->repr.bits.sample_depth,
+                                        target->repr.bits.color_depth);
+        // Snap MSB-aligned formats (e.g. P010) to the sample grid, so the unused
+        // low bits are zero instead of carrying sub-LSB error.
+        if (bit_shift > 0 && bit_shift < sample_depth) {
+            const float grid = ((1ull << sample_depth) - 1) /
+                               (float) (1ull << bit_shift);
+            GLSL("color.%s = round(color.%s * "$") * "$"; \n",
+                 comps, comps, SH_FLOAT(grid / scale), SH_FLOAT(1.0f / grid));
+        } else {
+            GLSL("color.%s *= vec%d(1.0 / "$"); \n",
+                 comps, num_comps, SH_FLOAT(scale));
+        }
 
         swizzle_color(sh, plane->components, plane->component_mapping,
                       params->blend_params);

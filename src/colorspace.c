@@ -576,6 +576,8 @@ void pl_color_linearize(const struct pl_color_space *csp, float color[3])
         .out_max    = &csp_max,
     ));
 
+    csp_min = pl_signal_black(csp_min, PL_HDR_NORM);
+
     if (csp->transfer != PL_COLOR_TRC_SCRGB)
         MAP3(fmaxf(X, 0));
 
@@ -665,6 +667,8 @@ void pl_color_delinearize(const struct pl_color_space *csp, float color[3])
         .out_min    = &csp_min,
         .out_max    = &csp_max,
     ));
+
+    csp_min = pl_signal_black(csp_min, PL_HDR_NORM);
 
     if (pl_color_space_is_black_scaled(csp) && csp->transfer != PL_COLOR_TRC_HLG)
         MAP3((X - csp_min) / (csp_max - csp_min));

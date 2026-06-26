@@ -398,6 +398,10 @@ static void generate_shaders(pl_dispatch dp,
         ADD(pre, "precision highp int; \n");
     }
 
+    // Define `precise` as no-op on GLSL where it wouldn't be available.
+    if (gpu->glsl.gles ? gpu->glsl.version < 320 : gpu->glsl.version < 400)
+        ADD(pre, "#define precise \n");
+
     // textureLod() doesn't work on external/rect samplers, simply disable
     // LOD sampling in this case. We don't currently support mipmaps anyway.
     for (int i = 0; i < sh->descs.num; i++) {
