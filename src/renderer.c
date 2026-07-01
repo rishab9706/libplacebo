@@ -75,6 +75,7 @@ struct pl_renderer_t {
     struct sampler sampler_contrast;
     struct sampler samplers_src[4];
     struct sampler samplers_dst[4];
+    struct sampler samplers_el[4];
 
     // Temporary storage for vertex/index data
     PL_ARRAY(struct osd_vertex) osd_vertices;
@@ -172,6 +173,8 @@ void pl_renderer_destroy(pl_renderer *p_rr)
         sampler_destroy(rr, &rr->samplers_src[i]);
     for (int i = 0; i < PL_ARRAY_SIZE(rr->samplers_dst); i++)
         sampler_destroy(rr, &rr->samplers_dst[i]);
+    for (int i = 0; i < PL_ARRAY_SIZE(rr->samplers_el); i++)
+        sampler_destroy(rr, &rr->samplers_el[i]);
 
     // Free fallback ICC profiles
     for (int i = 0; i < PL_ARRAY_SIZE(rr->icc_fallback); i++)
@@ -365,6 +368,9 @@ struct pass_state {
     // Cached copies of the `prev` / `next` frames, for deinterlacing.
     struct pl_frame prev, next;
 
+    // Cached copy of the `image->enhancement_layer`, so we can acquire/release it.
+    struct pl_frame enhancement_layer;
+
     // Some extra plane metadata, inferred from `planes`
     enum plane_type src_type[4];
     int src_ref, dst_ref; // index into `planes`
@@ -376,7 +382,7 @@ struct pass_state {
 
     // Map of acquired frames
     struct {
-        bool target, image, prev, next;
+        bool target, image, prev, next, enhancement_layer;
     } acquired;
 };
 
@@ -964,7 +970,7 @@ static void draw_overlays(struct pass_state *pass, pl_tex fbo,
         };
 
         sh->output = PL_SHADER_SIG_COLOR;
-        pl_shader_decode_color(sh, &ol.repr, NULL);
+        pl_shader_decode_color_ex(sh, pl_color_decode_args( .repr = &ol.repr ));
         if (target->icc)
             color.transfer = PL_COLOR_TRC_LINEAR;
         // Copy overlay color to infer it only if matching with the target video
@@ -1549,6 +1555,118 @@ static bool want_merge(struct pass_state *pass,
     return false;
 }
 
+static int frame_ref(const struct pl_frame *frame);
+
+#ifdef PL_HAVE_DOVI
+// Build a sub-shader that samples the enhancement layer planes and returns
+// the (color-repr-normalized) EL signal.
+static pl_shader sample_el(struct pass_state *pass, const struct pl_frame *el)
+{
+    pl_renderer rr = pass->rr;
+    pl_shader sh = pl_dispatch_begin_ex(rr->dp, true);
+    if (!sh_require(sh, PL_SHADER_SIG_NONE, 0, 0))
+        return NULL;
+
+    // The EL is upscaled and aligned to the BL plane, accounting for two
+    // independent sitings:
+    //
+    //  1. Chroma: passed in metadata, no mystery here, most likely top-left for
+    //     all UHD HEVC content.
+    //  2. Layer: the EL luma grid relative to the BL grid. Here there is no
+    //     metadata, but for all the samples it is consistently co-sited
+    //     horizontally, centered vertically; "left"-sited.
+    //
+    // TODO: This function currently is dovi specific, if different types of
+    //       EL should be supported, it should be refactored, fine for now though.
+    pl_tex ref_tex = pass->image.planes[pass->src_ref].texture;
+    const pl_rect2df bl_crop = pass->image.crop;
+
+    pl_tex el_ref = el->planes[frame_ref(el)].texture;
+    if (!el_ref) {
+        pl_dispatch_abort(rr->dp, &sh);
+        return NULL;
+    }
+
+    float layer_x = 0, layer_y = 0;
+    if (el_ref->params.w < ref_tex->params.w || el_ref->params.h < ref_tex->params.h) {
+        float lx, ly;
+        pl_chroma_location_offset(PL_CHROMA_LEFT, &lx, &ly);
+        if (el_ref->params.w < ref_tex->params.w)
+            layer_x = lx;
+        if (el_ref->params.h < ref_tex->params.h)
+            layer_y = ly;
+    }
+
+    float lrx = (float) el_ref->params.w / ref_tex->params.w,
+          lry = (float) el_ref->params.h / ref_tex->params.h;
+    float rlx = lrx >= 1 ? roundf(lrx) : 1.0 / roundf(1.0 / lrx),
+          rly = lry >= 1 ? roundf(lry) : 1.0 / roundf(1.0 / lry);
+
+    struct pl_color_repr el_repr = el->repr;
+    float el_scale = pl_color_repr_normalize(&el_repr);
+
+#pragma GLSL vec4 color = vec4(0.0), tmp;
+
+    for (int i = 0; i < el->num_planes; i++) {
+        const struct pl_plane *plane = &el->planes[i];
+        if (!plane->texture)
+            continue;
+
+        // Sample this plane straight from the base layer `crop`, with both
+        // chroma and layer sitings folded in, for correct alignment.
+        float rx = (float) plane->texture->params.w / el_ref->params.w,
+              ry = (float) plane->texture->params.h / el_ref->params.h;
+        float rrx = rlx * (rx >= 1 ? roundf(rx) : 1.0 / roundf(1.0 / rx)),
+              rry = rly * (ry >= 1 ? roundf(ry) : 1.0 / roundf(1.0 / ry));
+        float sx = layer_x + plane->shift_x / rlx,
+              sy = layer_y + plane->shift_y / rly;
+
+        struct pl_sample_src src = {
+            .tex          = plane->texture,
+            .components   = plane->components,
+            .address_mode = plane->address_mode,
+            .new_w        = pass->img.w,
+            .new_h        = pass->img.h,
+            .rect = {
+                .x0 = (bl_crop.x0 - sx) * rrx,
+                .y0 = (bl_crop.y0 - sy) * rry,
+                .x1 = (bl_crop.x1 - sx) * rrx,
+                .y1 = (bl_crop.y1 - sy) * rry,
+            },
+        };
+
+        PL_TRACE(rr, "EL plane %d: %dx%d -> %dx%d (EL ref %dx%d, BL ref %dx%d) "
+                 "shift {%.3f %.3f} rect {%.3f %.3f %.3f %.3f}",
+                 i, plane->texture->params.w, plane->texture->params.h,
+                 pass->img.w, pass->img.h, el_ref->params.w, el_ref->params.h,
+                 ref_tex->params.w, ref_tex->params.h, sx, sy,
+                 src.rect.x0, src.rect.y0, src.rect.x1, src.rect.y1);
+
+        pl_shader plane_sh = pl_dispatch_begin_ex(rr->dp, true);
+        dispatch_sampler(pass, plane_sh, &rr->samplers_el[i], SAMPLER_PLANE,
+                         NULL, &src);
+
+        ident_t sub = sh_subpass(sh, plane_sh);
+        pl_dispatch_abort(rr->dp, &plane_sh);
+        if (!sub) {
+            pl_dispatch_abort(rr->dp, &sh);
+            return NULL;
+        }
+
+#pragma GLSL tmp = vec4(${float: el_scale}) * $sub();
+        for (int c = 0; c < src.components; c++) {
+            int idx = plane->component_mapping[c];
+            if (idx < 0 || idx > 2)
+                continue;
+#pragma GLSL color[${const int: idx}] = tmp[${const int: c}];
+        }
+    }
+
+    sh_describe(sh, "enhancement layer");
+    return sh;
+}
+#endif // PL_HAVE_DOVI
+
 // This scales and merges all of the source images, and initializes pass->img.
 static bool pass_read_image(struct pass_state *pass)
 {
@@ -1939,7 +2057,28 @@ static bool pass_read_image(struct pass_state *pass)
             pl_shader_linearize(sh, &pass->img.color);
             pass->img.color.transfer = PL_COLOR_TRC_LINEAR;
         }
-        pl_shader_decode_color(sh, &pass->img.repr, params->color_adjustment);
+
+        pl_shader el_sh = NULL;
+#ifdef PL_HAVE_DOVI
+        bool compose_el = image->enhancement_layer &&
+                          pass->img.repr.sys == PL_COLOR_SYSTEM_DOLBYVISION &&
+                          pass->img.repr.dovi &&
+                          pass->img.repr.dovi->nlq_active;
+        if (compose_el) {
+            el_sh = sample_el(pass, image->enhancement_layer);
+            if (!el_sh) {
+                PL_ERR(rr, "Failed sampling enhancement layer; "
+                           "falling back to base-layer-only rendering");
+                rr->errors |= PL_RENDER_ERR_SAMPLING;
+            }
+        }
+#endif
+        pl_shader_decode_color_ex(sh, pl_color_decode_args(
+            .repr              = &pass->img.repr,
+            .color_adjustment  = params->color_adjustment,
+            .enhancement_layer = el_sh,
+        ));
+        pl_dispatch_abort(rr->dp, &el_sh);
     }
 
     if (lut_type == PL_LUT_NORMALIZED)
@@ -2485,8 +2624,6 @@ static uint8_t plane_comps(const struct pl_plane *plane,
         comps |= 1 << PL_CHANNEL_A;
     return comps;
 }
-
-static int frame_ref(const struct pl_frame *frame);
 
 static void clear_target(struct pass_state *pass, const pl_tex background,
                          float bg_scale, const struct pl_render_params *params)
@@ -3247,6 +3384,7 @@ static void pass_uninit(struct pass_state *pass)
 {
     pl_renderer rr = pass->rr;
     pl_dispatch_abort(rr->dp, &pass->img.sh);
+    release_frame(pass, &pass->enhancement_layer, &pass->acquired.enhancement_layer);
     release_frame(pass, &pass->next, &pass->acquired.next);
     release_frame(pass, &pass->prev, &pass->acquired.prev);
     release_frame(pass, &pass->image, &pass->acquired.image);
@@ -3266,7 +3404,10 @@ static void icc_fallback(struct pass_state *pass, struct pl_frame *frame,
 
 #ifdef PL_HAVE_LCMS
     pl_renderer rr = pass->rr;
-    if (pl_icc_update(rr->log, &fallback->icc, &frame->profile, NULL)) {
+    struct pl_icc_params *params = pl_icc_params(
+        .max_luma = frame->color.hdr.max_luma,
+    );
+    if (pl_icc_update(rr->log, &fallback->icc, &frame->profile, params)) {
         frame->icc = fallback->icc;
     } else {
         PL_WARN(rr, "Failed opening ICC profile... ignoring");
@@ -3364,6 +3505,23 @@ static bool pass_init(struct pass_state *pass, bool acquire_image)
             image->next = &pass->next;
             if (!acquire_frame(pass, &pass->next, &pass->acquired.next))
                 goto error;
+        }
+        if (image->enhancement_layer) {
+            bool acquire_el = false;
+#ifdef PL_HAVE_DOVI
+            acquire_el = image->repr.sys == PL_COLOR_SYSTEM_DOLBYVISION &&
+                         image->repr.dovi && image->repr.dovi->nlq_active;
+#endif
+            if (acquire_el) {
+                pass->enhancement_layer = *image->enhancement_layer;
+                image->enhancement_layer = &pass->enhancement_layer;
+                if (!acquire_frame(pass, &pass->enhancement_layer,
+                                   &pass->acquired.enhancement_layer))
+                    goto error;
+            } else {
+                // EL was attached but won't be composed, drop it.
+                image->enhancement_layer = NULL;
+            }
         }
     }
 

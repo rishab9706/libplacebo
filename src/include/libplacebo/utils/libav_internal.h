@@ -923,6 +923,24 @@ PL_LIBAV_API void pl_frame_copy_stream_props(struct pl_frame *out,
 #undef pl_av_stream_get_side_data
 
 #ifdef PL_HAVE_LAV_DOLBY_VISION
+static bool pl_avdovi_nlq_is_trivial(const AVDOVIRpuDataHeader *header,
+                                     const AVDOVINLQParams *nlq)
+{
+    return nlq->nlq_offset == 0 &&
+           nlq->vdr_in_max == (1ULL << header->coef_log2_denom) &&
+           nlq->linear_deadzone_slope == 0 &&
+           nlq->linear_deadzone_threshold == 0;
+}
+
+static bool pl_avdovi_mapping_nlq_is_trivial(const AVDOVIRpuDataHeader *header,
+                                             const AVDOVIDataMapping *mapping)
+{
+    return mapping->nlq_method_idc == AV_DOVI_NLQ_LINEAR_DZ &&
+           pl_avdovi_nlq_is_trivial(header, &mapping->nlq[0]) &&
+           pl_avdovi_nlq_is_trivial(header, &mapping->nlq[1]) &&
+           pl_avdovi_nlq_is_trivial(header, &mapping->nlq[2]);
+}
+
 PL_LIBAV_API void pl_map_dovi_metadata(struct pl_dovi_metadata *out,
                                        const AVDOVIMetadata *data)
 {
@@ -974,40 +992,41 @@ PL_LIBAV_API void pl_map_dovi_metadata(struct pl_dovi_metadata *out,
             }
         }
     }
+
+    // NLQ parameters for FEL composition. Populated whenever the bitstream
+    // carries non-trivial LINEAR_DZ NLQ (i.e. residuals exist). Consumers
+    // that have not bound an enhancement layer must not look at these fields.
+    out->nlq_active = !header->disable_residual_flag &&
+                      mapping->nlq_method_idc == AV_DOVI_NLQ_LINEAR_DZ &&
+                      !pl_avdovi_mapping_nlq_is_trivial(header, mapping);
+    if (out->nlq_active) {
+        const float el_scale = 1.0f / ((1 << header->el_bit_depth) - 1);
+        // Use double for `coef_scale_d` math to preserve numerical stability.
+        const double coef_scale_d  = 1.0 / (1ULL << header->coef_log2_denom);
+        // DV LINEAR_DZ dequantization: for residual code rr,
+        //   r_norm = sign(rr) * ((|rr| - 0.5) * S_norm + T_norm)
+        // where S_norm, T_norm are coef_log2_denom-normalized. To let the
+        // shader operate on el_centered in [-1, 1] / (2^eld - 1) space, we
+        // pre-fold (2^eld - 1) into slope and -0.5*S into threshold.
+        const double slope_scale_d = ((1ULL << header->el_bit_depth) - 1)
+                                   * coef_scale_d;
+        for (int c = 0; c < 3; c++) {
+            const AVDOVINLQParams *src = &mapping->nlq[c];
+            struct pl_dovi_nlq_data *dst = &out->nlq[c];
+            const double S = src->linear_deadzone_slope;
+            const double T = src->linear_deadzone_threshold;
+            dst->offset = el_scale * src->nlq_offset;
+            dst->deadzone_slope = slope_scale_d * S;
+            dst->deadzone_threshold = coef_scale_d * (T - 0.5 * S);
+        }
+    }
 }
 
-static bool pl_avdovi_nlq_is_trivial(const AVDOVIRpuDataHeader *header,
-                                     const AVDOVINLQParams *nlq)
-{
-    return nlq->nlq_offset == 0 &&
-           nlq->vdr_in_max == (1ULL << header->coef_log2_denom) &&
-           nlq->linear_deadzone_slope == 0 &&
-           nlq->linear_deadzone_threshold == 0;
-}
-
-static bool pl_avdovi_mapping_nlq_is_trivial(const AVDOVIRpuDataHeader *header,
-                                             const AVDOVIDataMapping *mapping)
-{
-    return mapping->nlq_method_idc == AV_DOVI_NLQ_LINEAR_DZ &&
-           pl_avdovi_nlq_is_trivial(header, &mapping->nlq[0]) &&
-           pl_avdovi_nlq_is_trivial(header, &mapping->nlq[1]) &&
-           pl_avdovi_nlq_is_trivial(header, &mapping->nlq[2]);
-}
-
+PL_DEPRECATED_IN(v7.370)
 PL_LIBAV_API bool pl_avdovi_metadata_supported(const AVDOVIMetadata *metadata)
 {
-    const AVDOVIRpuDataHeader *header;
-    const AVDOVIDataMapping *mapping;
-
-    header = av_dovi_get_header(metadata);
-    if (header->disable_residual_flag)
-        return true;
-
-    mapping = av_dovi_get_mapping(metadata);
-    if (pl_avdovi_mapping_nlq_is_trivial(header, mapping))
-        return true;
-
-    return false;
+    (void)metadata;
+    return true;
 }
 
 PL_LIBAV_API void pl_map_avdovi_metadata(struct pl_color_space *color,
@@ -1057,8 +1076,7 @@ PL_LIBAV_API void pl_frame_map_avdovi_metadata(struct pl_frame *out_frame,
 {
     if (!out_frame)
         return;
-    if (pl_avdovi_metadata_supported(metadata))
-        pl_map_avdovi_metadata(&out_frame->color, &out_frame->repr, dovi, metadata);
+    pl_map_avdovi_metadata(&out_frame->color, &out_frame->repr, dovi, metadata);
 }
 #endif // PL_HAVE_LAV_DOLBY_VISION
 
@@ -1411,9 +1429,7 @@ PL_LIBAV_API bool pl_map_avframe_ex(pl_gpu gpu, struct pl_frame *out,
         AVFrameSideData *sd = av_frame_get_side_data(frame, AV_FRAME_DATA_DOVI_METADATA);
         if (sd) {
             const AVDOVIMetadata *metadata = (AVDOVIMetadata *) sd->data;
-            // Only automatically map DoVi RPUs that don't require a (full) EL
-            if (params->map_dovi_force || pl_avdovi_metadata_supported(metadata))
-                pl_map_avdovi_metadata(&out->color, &out->repr, &priv->dovi, metadata);
+            pl_map_avdovi_metadata(&out->color, &out->repr, &priv->dovi, metadata);
         }
 
 #ifdef PL_HAVE_LIBDOVI

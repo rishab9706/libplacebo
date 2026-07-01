@@ -103,6 +103,49 @@ static inline void reshape_poly(pl_shader sh)
 }
 #endif
 
+void sh_dovi_compose_nlq(pl_shader sh, const struct pl_dovi_metadata *data,
+                         ident_t el_signal)
+{
+#ifdef PL_HAVE_DOVI
+    if (!data || !data->nlq_active)
+        return;
+
+    if (!sh_require(sh, PL_SHADER_SIG_COLOR, 0, 0))
+        return;
+
+    float offset[3], slope[3], threshold[3];
+    for (int c = 0; c < 3; c++) {
+        offset[c] = data->nlq[c].offset;
+        slope[c] = data->nlq[c].deadzone_slope;
+        threshold[c] = data->nlq[c].deadzone_threshold;
+    }
+
+    ident_t off = sh_var(sh, (struct pl_shader_var) {
+        .var  = pl_var_vec3("nlq_offset"),
+        .data = offset,
+    });
+    ident_t slp = sh_var(sh, (struct pl_shader_var) {
+        .var  = pl_var_vec3("nlq_slope"),
+        .data = slope,
+    });
+    ident_t thr = sh_var(sh, (struct pl_shader_var) {
+        .var  = pl_var_vec3("nlq_threshold"),
+        .data = threshold,
+    });
+
+    // LINEAR_DZ dequantization. The (2^eld - 1) factor and the -0.5*S
+    // half-pixel correction are pre-folded into slope/threshold by
+    // pl_map_dovi_metadata, so the per-pixel form collapses to:
+    //   residual = sign(el_centered) * (|el_centered| * slope + threshold)
+    // sign(0) == 0 covers the spec's rr==0 carve-out exactly.
+#pragma GLSL /* sh_dovi_compose_nlq */                                  \
+    {                                                                   \
+    vec3 el_centered = $el_signal().rgb - $off;                         \
+    color.rgb += sign(el_centered) * (abs(el_centered) * $slp + $thr);  \
+    }
+#endif
+}
+
 void pl_shader_dovi_reshape(pl_shader sh, const struct pl_dovi_metadata *data)
 {
 #ifdef PL_HAVE_DOVI
@@ -272,9 +315,12 @@ void pl_shader_dovi_reshape(pl_shader sh, const struct pl_dovi_metadata *data)
 #endif
 }
 
-void pl_shader_decode_color(pl_shader sh, struct pl_color_repr *repr,
-                            const struct pl_color_adjustment *params)
+void pl_shader_decode_color_ex(pl_shader sh,
+                               const struct pl_color_decode_args *args)
 {
+    struct pl_color_repr *repr = args->repr;
+    const struct pl_color_adjustment *params = args->color_adjustment;
+
     if (!sh_require(sh, PL_SHADER_SIG_COLOR, 0, 0))
         return;
 
@@ -290,6 +336,15 @@ void pl_shader_decode_color(pl_shader sh, struct pl_color_repr *repr,
 
     if (repr->sys == PL_COLOR_SYSTEM_DOLBYVISION)
         pl_shader_dovi_reshape(sh, repr->dovi);
+
+    // Dolby Vision FEL composition
+    if (args->enhancement_layer && repr->sys == PL_COLOR_SYSTEM_DOLBYVISION &&
+        repr->dovi && repr->dovi->nlq_active)
+    {
+        ident_t el = sh_subpass(sh, args->enhancement_layer);
+        if (el)
+            sh_dovi_compose_nlq(sh, repr->dovi, el);
+    }
 
     enum pl_color_system orig_sys = repr->sys;
     pl_transform3x3 tr = pl_color_repr_decode(repr, params);
@@ -457,6 +512,15 @@ void pl_shader_decode_color(pl_shader sh, struct pl_color_repr *repr,
 
     pl_shader_set_alpha(sh, repr, PL_ALPHA_INDEPENDENT);
     GLSL("}\n");
+}
+
+void pl_shader_decode_color(pl_shader sh, struct pl_color_repr *repr,
+                            const struct pl_color_adjustment *params)
+{
+    pl_shader_decode_color_ex(sh, pl_color_decode_args(
+        .repr             = repr,
+        .color_adjustment = params,
+    ));
 }
 
 void pl_shader_encode_color(pl_shader sh, const struct pl_color_repr *repr)
