@@ -1755,8 +1755,11 @@ void pl_shader_color_map_ex(pl_shader sh, const struct pl_color_map_params *para
 
     if (!params->inverse_tone_mapping) {
         // Never exceed the source unless requested, but still allow
-        // black point adaptation
-        tone.output_max = PL_MIN(tone.output_max, tone.input_max);
+        // black point adaptation. Adjust the input lumiance, such that the BPC
+        // is calculated correctly, for the output dynamic range. This also
+        // fixes clipping if the metadata is under-reported, which is actually
+        // quite common for Dolby Vision content.
+        tone.input_max = PL_MAX(tone.input_max, tone.output_max);
     }
 
     const int *lut3d_size_def = pl_color_map_default_params.lut3d_size;
