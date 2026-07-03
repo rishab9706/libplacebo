@@ -3404,9 +3404,13 @@ static void icc_fallback(struct pass_state *pass, struct pl_frame *frame,
 
 #ifdef PL_HAVE_LCMS
     pl_renderer rr = pass->rr;
-    struct pl_icc_params *params = pl_icc_params(
-        .max_luma = frame->color.hdr.max_luma,
-    );
+    struct pl_icc_params *params = pl_icc_params();
+    // When frame max_luma is not set it, default SDR white value is forced.
+    // Luminance value encoded in ICC is ignored. Using ICC luminance in our case
+    // makes no much sense, as we want to put image at reference white anyway,
+    // which likely will be different from ICC luminance.
+    if (frame->color.hdr.max_luma > 0.0f)
+        params->max_luma = frame->color.hdr.max_luma;
     if (pl_icc_update(rr->log, &fallback->icc, &frame->profile, params)) {
         frame->icc = fallback->icc;
     } else {
