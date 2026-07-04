@@ -975,7 +975,7 @@ void pl_color_space_infer_map(struct pl_color_space *src,
     if (unknown_src_luminance && src_is_sdr && dst_is_sdr)
         src->hdr.max_luma = dst->hdr.max_luma;
 
-    // If SDR source has luminance, say from ICC profile, use it for target.
+    // If SDR source has luminance, use it for target.
     if (!unknown_src_luminance && src_is_sdr && dst_is_sdr)
         dst->hdr.max_luma = src->hdr.max_luma;
 
