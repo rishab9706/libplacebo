@@ -952,6 +952,7 @@ void pl_color_space_infer_map(struct pl_color_space *src,
 {
     bool unknown_src_contrast = !src->hdr.min_luma;
     bool unknown_dst_contrast = !dst->hdr.min_luma;
+    bool unknown_src_luminance = !src->hdr.max_luma;
 
     infer_both_ref(dst, src);
 
@@ -969,6 +970,14 @@ void pl_color_space_infer_map(struct pl_color_space *src,
     bool dst_is_sdr = !pl_color_space_is_hdr(dst);
     if (unknown_dst_contrast && src_is_sdr && dst_is_sdr)
         dst->hdr.min_luma = src->hdr.min_luma;
+
+    // If both src and dst are SDR, match luminance, this input is display-referred.
+    if (unknown_src_luminance && src_is_sdr && dst_is_sdr)
+        src->hdr.max_luma = dst->hdr.max_luma;
+
+    // If SDR source has luminance, use it for target.
+    if (!unknown_src_luminance && src_is_sdr && dst_is_sdr)
+        dst->hdr.max_luma = src->hdr.max_luma;
 
     // If the src is HLG and the output is HDR, tune the HLG peak to the output
     if (src->transfer == PL_COLOR_TRC_HLG && pl_color_space_is_hdr(dst))

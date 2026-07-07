@@ -293,7 +293,7 @@ void pl_shader_deinterlace(pl_shader sh, const struct pl_deinterlace_source *src
             T bs = prev2[1] + next2[1];                                         \
             T fs = prev2[3] + next2[3];                                         \
             T b = (bs / 2.0) - c;                                               \
-            T f = (fs / 2.0) - c;                                               \
+            T f = (fs / 2.0) - e;                                               \
             T dc = d - c;                                                       \
             T de = d - e;                                                       \
             T mmax = max(de, max(dc, min(b, f)));                               \
