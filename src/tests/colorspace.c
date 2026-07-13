@@ -494,10 +494,12 @@ int main()
     REQUIRE(pl_hdr_metadata_contains(&hdr10plus.hdr, PL_HDR_METADATA_HDR10));
     REQUIRE(pl_hdr_metadata_contains(&hdr10plus.hdr, PL_HDR_METADATA_HDR10PLUS));
     REQUIRE(!pl_hdr_metadata_contains(&hdr10plus.hdr, PL_HDR_METADATA_CIE_Y));
+    REQUIRE(!pl_hdr_metadata_contains(&hdr10plus.hdr, PL_HDR_METADATA_DOLBYVISION));
 
     TEST_METADATA(hdr10plus, PL_HDR_METADATA_NONE,      PL_COLOR_HDR_BLACK, 10000, 0);
     TEST_METADATA(hdr10plus, PL_HDR_METADATA_CIE_Y,     0.005, 4000, 0);
     TEST_METADATA(hdr10plus, PL_HDR_METADATA_HDR10,     0.005, 4000, 0);
+    TEST_METADATA(hdr10plus, PL_HDR_METADATA_DOLBYVISION, 0.005, 4000, 0);
     TEST_METADATA(hdr10plus, PL_HDR_METADATA_HDR10PLUS, 0.005, 1000, 250);
     TEST_METADATA(hdr10plus, PL_HDR_METADATA_ANY,       0.005, 1000, 250);
 
@@ -516,13 +518,15 @@ int main()
     REQUIRE(pl_hdr_metadata_contains(&dovi.hdr, PL_HDR_METADATA_ANY));
     REQUIRE(pl_hdr_metadata_contains(&dovi.hdr, PL_HDR_METADATA_NONE));
     REQUIRE(pl_hdr_metadata_contains(&dovi.hdr, PL_HDR_METADATA_HDR10));
-    REQUIRE(pl_hdr_metadata_contains(&dovi.hdr, PL_HDR_METADATA_CIE_Y));
+    REQUIRE(pl_hdr_metadata_contains(&dovi.hdr, PL_HDR_METADATA_DOLBYVISION));
+    REQUIRE(!pl_hdr_metadata_contains(&dovi.hdr, PL_HDR_METADATA_CIE_Y));
     REQUIRE(!pl_hdr_metadata_contains(&dovi.hdr, PL_HDR_METADATA_HDR10PLUS));
 
     TEST_METADATA(dovi, PL_HDR_METADATA_NONE,      PL_COLOR_HDR_BLACK, 10000, 0);
     TEST_METADATA(dovi, PL_HDR_METADATA_HDR10,     0.005, 4000, 0);
     TEST_METADATA(dovi, PL_HDR_METADATA_HDR10PLUS, 0.005, 4000, 0);
-    TEST_METADATA(dovi, PL_HDR_METADATA_CIE_Y,     0.005, 1000, 250);
+    TEST_METADATA(dovi, PL_HDR_METADATA_CIE_Y,     0.005, 4000, 0);
+    TEST_METADATA(dovi, PL_HDR_METADATA_DOLBYVISION, 0.005, 1000, 250);
     TEST_METADATA(dovi, PL_HDR_METADATA_ANY,       0.005, 1000, 250);
 
     const struct pl_color_space hlg4000 = {
@@ -545,6 +549,7 @@ int main()
     REQUIRE(!pl_hdr_metadata_contains(&untagged.hdr, PL_HDR_METADATA_ANY));
     REQUIRE(!pl_hdr_metadata_contains(&untagged.hdr, PL_HDR_METADATA_HDR10));
     REQUIRE(!pl_hdr_metadata_contains(&untagged.hdr, PL_HDR_METADATA_CIE_Y));
+    REQUIRE(!pl_hdr_metadata_contains(&untagged.hdr, PL_HDR_METADATA_DOLBYVISION));
     REQUIRE(!pl_hdr_metadata_contains(&untagged.hdr, PL_HDR_METADATA_HDR10PLUS));
 
     const float sdr_black = PL_COLOR_SDR_WHITE / PL_COLOR_SDR_CONTRAST;
@@ -561,6 +566,7 @@ int main()
     REQUIRE(pl_hdr_metadata_contains(&sdr50.hdr, PL_HDR_METADATA_ANY));
     REQUIRE(pl_hdr_metadata_contains(&sdr50.hdr, PL_HDR_METADATA_HDR10));
     REQUIRE(!pl_hdr_metadata_contains(&sdr50.hdr, PL_HDR_METADATA_CIE_Y));
+    REQUIRE(!pl_hdr_metadata_contains(&sdr50.hdr, PL_HDR_METADATA_DOLBYVISION));
     REQUIRE(!pl_hdr_metadata_contains(&sdr50.hdr, PL_HDR_METADATA_HDR10PLUS));
 
     TEST_METADATA(sdr50, PL_HDR_METADATA_NONE,  sdr_black, PL_COLOR_SDR_WHITE, 0);
