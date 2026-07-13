@@ -636,6 +636,7 @@ void update_settings(struct plplay *p, const struct pl_frame *target)
                 [PL_HDR_METADATA_HDR10]             = "HDR10 (static)",
                 [PL_HDR_METADATA_HDR10PLUS]         = "HDR10+ (MaxRGB)",
                 [PL_HDR_METADATA_CIE_Y]             = "Luminance (CIE Y)",
+                [PL_HDR_METADATA_DOLBYVISION]       = "Dolby Vision (Dynamic)"
             };
 
             nk_label(nk, "HDR metadata source:", NK_TEXT_LEFT);
