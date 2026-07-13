@@ -507,8 +507,9 @@ int main()
         .hdr = {
             .min_luma = 0.005,
             .max_luma = 4000,
-            .max_pq_y = pl_hdr_rescale(PL_HDR_NITS, PL_HDR_PQ, 1000),
-            .avg_pq_y = pl_hdr_rescale(PL_HDR_NITS, PL_HDR_PQ, 250),
+            .dovi_max_pq = pl_hdr_rescale(PL_HDR_NITS, PL_HDR_PQ, 1000),
+            .dovi_avg_pq = pl_hdr_rescale(PL_HDR_NITS, PL_HDR_PQ, 250),
+            .dovi_min_pq = pl_hdr_rescale(PL_HDR_NITS, PL_HDR_PQ, 0.005)
         },
     };
 
