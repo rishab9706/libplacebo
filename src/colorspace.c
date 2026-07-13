@@ -441,7 +441,10 @@ bool pl_hdr_metadata_equal(const struct pl_hdr_metadata *a,
            a->scene_avg == b->scene_avg &&
            pl_hdr_bezier_equal(&a->ootf, &b->ootf) &&
            a->max_pq_y == b->max_pq_y &&
-           a->avg_pq_y == b->avg_pq_y;
+           a->avg_pq_y == b->avg_pq_y &&
+           a->dovi_max_pq == b->dovi_max_pq &&
+           a->dovi_avg_pq == b->dovi_avg_pq &&
+           a->dovi_min_pq == b->dovi_min_pq;
 }
 
 void pl_hdr_metadata_merge(struct pl_hdr_metadata *orig,
@@ -466,6 +469,12 @@ void pl_hdr_metadata_merge(struct pl_hdr_metadata *orig,
         orig->max_pq_y = update->max_pq_y;
     if (!orig->avg_pq_y)
         orig->avg_pq_y = update->avg_pq_y;
+    if (!orig->dovi_max_pq)
+        orig->dovi_max_pq = update->dovi_max_pq;
+    if (!orig->dovi_avg_pq)
+        orig->dovi_avg_pq = update->dovi_avg_pq;
+    if (!orig->dovi_min_pq)
+        orig->dovi_min_pq = update->dovi_min_pq;
 }
 
 bool pl_hdr_metadata_contains(const struct pl_hdr_metadata *data,

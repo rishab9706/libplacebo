@@ -1058,14 +1058,17 @@ PL_LIBAV_API void pl_map_avdovi_metadata(struct pl_color_space *color,
     if ((dovi_ext_l1 = av_dovi_find_level(metadata, 1))) {
         float max_pq_offset = 0.0f;
         float avg_pq_offset = 0.0f;
+        float min_pq_offset = 0.0f;
 
         if ((dovi_ext_l3 = av_dovi_find_level(metadata, 3))) {
             max_pq_offset = dovi_ext_l3->l3.max_pq_offset - 2048;
             avg_pq_offset = dovi_ext_l3->l3.avg_pq_offset - 2048;
+            min_pq_offset = dovi_ext_l3->l3.min_pq_offset - 2048;
         }
 
-        color->hdr.max_pq_y = (dovi_ext_l1->l1.max_pq + max_pq_offset) / 4095.0f;
-        color->hdr.avg_pq_y = (dovi_ext_l1->l1.avg_pq + avg_pq_offset) / 4095.0f;
+        color->hdr.dovi_max_pq = (dovi_ext_l1->l1.max_pq + max_pq_offset) / 4095.0f;
+        color->hdr.dovi_avg_pq = (dovi_ext_l1->l1.avg_pq + avg_pq_offset) / 4095.0f;
+        color->hdr.dovi_min_pq = (dovi_ext_l1->l1.min_pq + min_pq_offset) / 4095.0f;
     }
 #endif
 }
