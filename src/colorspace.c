@@ -485,6 +485,7 @@ bool pl_hdr_metadata_contains(const struct pl_hdr_metadata *data,
                                              data->scene_max[1] ||
                                              data->scene_max[2]);
     bool has_cie_y = data->max_pq_y && data->avg_pq_y;
+    bool has_dovi = data->dovi_max_pq && data->dovi_avg_pq;
 
     switch (type) {
     case PL_HDR_METADATA_NONE:          return true;
@@ -492,6 +493,7 @@ bool pl_hdr_metadata_contains(const struct pl_hdr_metadata *data,
     case PL_HDR_METADATA_HDR10:         return has_hdr10;
     case PL_HDR_METADATA_HDR10PLUS:     return has_hdr10plus;
     case PL_HDR_METADATA_CIE_Y:         return has_cie_y;
+    case PL_HDR_METADATA_DOLBYVISION:   return has_dovi;
     case PL_HDR_METADATA_TYPE_COUNT:    break;
     }
 
@@ -829,6 +831,14 @@ void pl_color_space_nominal_luma_ex(const struct pl_nominal_luma_params *params)
     {
         max_luma = pl_hdr_rescale(PL_HDR_PQ, scaling, csp->hdr.max_pq_y);
         avg_luma = pl_hdr_rescale(PL_HDR_PQ, scaling, csp->hdr.avg_pq_y);
+    }
+
+    if (metadata_compat(params->metadata, PL_HDR_METADATA_DOLBYVISION) &&
+        pl_hdr_metadata_contains(&csp->hdr, PL_HDR_METADATA_DOLBYVISION))
+    {
+        max_luma = pl_hdr_rescale(PL_HDR_PQ, scaling, csp->hdr.dovi_max_pq);
+        avg_luma = pl_hdr_rescale(PL_HDR_PQ, scaling, csp->hdr.dovi_avg_pq);
+        min_luma = pl_hdr_rescale(PL_HDR_PQ, scaling, csp->hdr.dovi_min_pq);
     }
 
     // Clamp to sane value range

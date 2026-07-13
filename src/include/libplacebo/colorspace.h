@@ -414,6 +414,7 @@ enum pl_hdr_metadata_type {
     PL_HDR_METADATA_HDR10,          // HDR10 static mastering display metadata
     PL_HDR_METADATA_HDR10PLUS,      // HDR10+ dynamic metadata
     PL_HDR_METADATA_CIE_Y,          // CIE Y derived dynamic luminance metadata
+    PL_HDR_METADATA_DOLBYVISION,    // Dolby Vision dynamic luminance metadata
     PL_HDR_METADATA_TYPE_COUNT,
 };
 

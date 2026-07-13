@@ -1212,7 +1212,7 @@ static void hdr_update_peak(struct pass_state *pass)
     if (max_peak <= pass->target.color.hdr.max_luma + 1e-6)
         goto cleanup; // no adaptation needed
 
-    if (pass->img.color.hdr.avg_pq_y)
+    if (pass->img.color.hdr.avg_pq_y || pass->img.color.hdr.dovi_avg_pq)
         goto cleanup; // DV metadata already present
 
     enum pl_hdr_metadata_type metadata = PL_HDR_METADATA_ANY;
