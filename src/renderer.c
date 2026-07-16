@@ -1212,8 +1212,8 @@ static void hdr_update_peak(struct pass_state *pass)
     if (max_peak <= pass->target.color.hdr.max_luma + 1e-6)
         goto cleanup; // no adaptation needed
 
-    if (pass->img.color.hdr.avg_pq_y || pass->img.color.hdr.dovi_avg_pq)
-        goto cleanup; // DV metadata already present
+    if (pass->img.color.hdr.avg_pq_y)
+        goto cleanup; // HDR10+ metadata already present
 
     enum pl_hdr_metadata_type metadata = PL_HDR_METADATA_ANY;
     if (params->color_map_params)
@@ -1221,6 +1221,11 @@ static void hdr_update_peak(struct pass_state *pass)
 
     if (metadata && metadata != PL_HDR_METADATA_CIE_Y)
         goto cleanup; // metadata will be unused
+
+    if (pass->img.color.hdr.dovi_avg_pq) {
+        if (!(metadata && metadata == PL_HDR_METADATA_CIE_Y))
+            goto cleanup; // Dolby Vision metadata present and used
+    }
 
     const struct pl_color_map_params *cpars = params->color_map_params;
     bool uses_ootf = cpars && cpars->tone_mapping_function == &pl_tone_map_st2094_40;
