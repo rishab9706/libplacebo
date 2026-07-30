@@ -25,9 +25,11 @@
 
 #include <libplacebo/utils/dolbyvision.h>
 
+#include <libavutil/common.h>
 #include <libavutil/hwcontext.h>
 #include <libavutil/hwcontext_drm.h>
 #include <libavutil/imgutils.h>
+#include <libavutil/macros.h>
 #include <libavutil/pixdesc.h>
 #include <libavutil/display.h>
 #include <libavformat/version.h>
@@ -389,7 +391,7 @@ PL_LIBAV_API void pl_map_hdr_metadata(struct pl_hdr_metadata *out,
                 out->max_pq_y = pl_hdr_rescale(PL_HDR_NITS, PL_HDR_PQ, y99_nits);
                 // There is no scene_avg, but we can infer it by rescaling the
                 // RGB average value, should be good enough approximation.
-                float max = COMP_MAX3(out->scene_max[0], out->scene_max[1], out->scene_max[2]);
+                float max = FFMAX3(out->scene_max[0], out->scene_max[1], out->scene_max[2]);
                 if (max > 0 && out->scene_avg) {
                     const float coef = y99_nits / max;
                     out->avg_pq_y = pl_hdr_rescale(PL_HDR_NITS, PL_HDR_PQ,
@@ -1141,12 +1143,12 @@ static void pl_map_hwframe_bit_encoding(struct pl_bit_encoding *out_bits,
         return;
 
     // Calculate bit encoding from all components (excluding alpha)
-    for (int c = 0; c < COMP_MIN(desc->nb_components, 3); c++) {
+    for (int c = 0; c < FFMIN(desc->nb_components, 3); c++) {
         const AVComponentDescriptor *comp = &desc->comp[c];
         struct pl_bit_encoding cbits = {
-            .sample_depth = comp->depth + COMP_ABS(comp->shift),
+            .sample_depth = comp->depth + FFABS(comp->shift),
             .color_depth  = comp->depth,
-            .bit_shift    = COMP_MAX(comp->shift, 0),
+            .bit_shift    = FFMAX(comp->shift, 0),
         };
 
         if (bits.sample_depth && !pl_bit_encoding_equal(&bits, &cbits)) {
@@ -1160,10 +1162,6 @@ static void pl_map_hwframe_bit_encoding(struct pl_bit_encoding *out_bits,
     if (is_supported)
         *out_bits = bits;
 }
-
-#undef COMP_MAX
-#undef COMP_MIN
-#undef COMP_ABS
 
 static void pl_fix_hwframe_sample_depth(struct pl_frame *out)
 {
