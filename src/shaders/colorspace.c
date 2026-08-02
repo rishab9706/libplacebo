@@ -1657,6 +1657,58 @@ static void visualize_gamut_map(pl_shader sh, pl_rect2df rc,
          lut);
 }
 
+static void ipt_convert(pl_shader sh, ident_t rgb2lms, ident_t lms2ipt,
+                        bool declare)
+{
+    const char *v = declare ? "vec3 " : "";
+    const char *f = declare ? "float " : "";
+    GLSL("%s""lms = "$" * color.rgb;                \n"
+         "%s""lmspq = %f * lms;                     \n"
+         "lmspq = pow(max(lmspq, 0.0), vec3(%f));   \n"
+         "lmspq = (vec3(%f) + %f * lmspq)           \n"
+         "        / (vec3(1.0) + %f * lmspq);       \n"
+         "lmspq = pow(lmspq, vec3(%f));             \n"
+         "%s""ipt = "$" * lmspq;                    \n"
+         "%s""i_orig = ipt.x;                       \n",
+         v, rgb2lms,
+         v, PL_COLOR_SDR_WHITE / 10000,
+         PQ_M1, PQ_C1, PQ_C2, PQ_C3, PQ_M2,
+         v, lms2ipt,
+         f);
+}
+
+static void sample_feature_map(pl_shader sh, pl_tex feature_map)
+{
+    ident_t pos, pt;
+    ident_t lowres = sh_bind(sh, feature_map, PL_TEX_ADDRESS_CLAMP,
+                             PL_TEX_SAMPLE_LINEAR, "feature_map",
+                             NULL, &pos, &pt);
+    GLSL("vec2 lpos  = "$";                                 \n"
+         "vec2 lpt   = "$";                                 \n"
+         "vec2 lsize = vec2(textureSize("$", 0));           \n"
+         "vec2 frac  = fract(lpos * lsize + vec2(0.5));     \n"
+         "vec2 frac2 = frac * frac;                         \n"
+         "vec2 inv   = vec2(1.0) - frac;                    \n"
+         "vec2 inv2  = inv * inv;                           \n"
+         "vec2 w0 = 1.0/6.0 * inv2 * inv;                   \n"
+         "vec2 w1 = 2.0/3.0 - 0.5 * frac2 * (2.0 - frac);   \n"
+         "vec2 w2 = 2.0/3.0 - 0.5 * inv2  * (2.0 - inv);    \n"
+         "vec2 w3 = 1.0/6.0 * frac2 * frac;                 \n"
+         "vec4 g = vec4(w0 + w1, w2 + w3);                  \n"
+         "vec4 h = vec4(w1, w3) / g + inv.xyxy;             \n"
+         "h.xy -= vec2(2.0);                                \n"
+         "vec4 p = lpos.xyxy + lpt.xyxy * h;                \n"
+         "float l00 = textureLod("$", p.xy, 0.0).r;         \n"
+         "float l01 = textureLod("$", p.xw, 0.0).r;         \n"
+         "float l0 = mix(l01, l00, g.y);                    \n"
+         "float l10 = textureLod("$", p.zy, 0.0).r;         \n"
+         "float l11 = textureLod("$", p.zw, 0.0).r;         \n"
+         "float l1 = mix(l11, l10, g.y);                    \n"
+         "float luma = mix(l1, l0, g.x);                    \n",
+         pos, pt, lowres,
+         lowres, lowres, lowres, lowres);
+}
+
 static void fill_tone_lut(void *data, const struct sh_lut_params *params)
 {
     const struct pl_tone_map_params *lut_params = params->priv;
@@ -1852,6 +1904,11 @@ void pl_shader_color_map_ex(pl_shader sh, const struct pl_color_map_params *para
                       params->dovi_trims &&
                       tone.function == &pl_tone_map_st2094_10;
 
+    // Gain-based tone application: rather than mapping the IPT intensity
+    // and repairing chroma afterwards, tone map a scalar intensity metric
+    // and re-expose the linear color by the resulting gain.
+    const bool use_gain = (need_tone_map && obj && !params->inverse_tone_mapping) || need_trims;
+
     if (!args->prelinearized)
         pl_shader_linearize(sh, &src);
 
@@ -1880,18 +1937,8 @@ void pl_shader_color_map_ex(pl_shader sh, const struct pl_color_map_params *para
     }
 
     // Full path: convert input from normalized RGB to IPT
-    GLSL("vec3 lms = "$" * color.rgb;               \n"
-         "vec3 lmspq = %f * lms;                    \n"
-         "lmspq = pow(max(lmspq, 0.0), vec3(%f));   \n"
-         "lmspq = (vec3(%f) + %f * lmspq)           \n"
-         "        / (vec3(1.0) + %f * lmspq);       \n"
-         "lmspq = pow(lmspq, vec3(%f));             \n"
-         "vec3 ipt = "$" * lmspq;                   \n"
-         "float i_orig = ipt.x;                     \n",
-         SH_MAT3(rgb2lms),
-         PL_COLOR_SDR_WHITE / 10000,
-         PQ_M1, PQ_C1, PQ_C2, PQ_C3, PQ_M2,
-         lms2ipt);
+    ident_t rgb2lms_i = SH_MAT3(rgb2lms);
+    ipt_convert(sh, rgb2lms_i, lms2ipt, true);
 
     if (params->show_clipping) {
         const float eps = 1e-6f;
@@ -1904,6 +1951,25 @@ void pl_shader_color_map_ex(pl_shader sh, const struct pl_color_map_params *para
              SH_FLOAT(pl_hdr_rescale(PL_HDR_PQ, PL_HDR_NORM, tone.input_min) - eps),
              SH_FLOAT_DYN(tone.input_max + eps),
              SH_FLOAT(tone.input_min - eps));
+    }
+
+    if (use_gain) {
+        // Scalar intensity metric for the curve, in PQ: the Euclidean
+        // norm |RGB|/sqrt(3) blended toward maxRGB. The norm places mixed
+        // colors near their perceived brightness, while pure colors map
+        // by that channel directly.
+        GLSL("vec3 tm_c = max(color.rgb, 0.0);                          \n"
+             "float tm_mx = max(tm_c.r, max(tm_c.g, tm_c.b));           \n"
+             "float tm_p = 1.0 - min(tm_c.r, min(tm_c.g, tm_c.b)) /     \n"
+             "             max(tm_mx, 1e-6);                            \n"
+             "vec2 tm2 = %f * vec2(0.5773503 * length(tm_c), tm_mx);    \n"
+             "tm2 = pow(clamp(tm2, 0.0, 1.0), vec2(%f));                \n"
+             "tm2 = (%f + %f * tm2) / (1.0 + %f * tm2);                 \n"
+             "tm2 = pow(tm2, vec2(%f));                                 \n"
+             "float tm_in = mix(tm2.x, tm2.y, tm_p * tm_p);             \n"
+             "float tm_out = tm_in;                                     \n",
+             PL_COLOR_SDR_WHITE / 10000.0,
+             PQ_M1, PQ_C1, PQ_C2, PQ_C3, PQ_M2);
     }
 
     if (need_tone_map) {
@@ -1968,51 +2034,46 @@ void pl_shader_color_map_ex(pl_shader sh, const struct pl_color_map_params *para
         }
 
         bool need_recovery = tone.input_max >= tone.output_max;
-        if (need_recovery && params->contrast_recovery && args->feature_map) {
-            ident_t pos, pt;
-            ident_t lowres = sh_bind(sh, args->feature_map, PL_TEX_ADDRESS_CLAMP,
-                                     PL_TEX_SAMPLE_LINEAR, "feature_map",
-                                     NULL, &pos, &pt);
-
-            // Obtain HF detail map from bicubic interpolation of LF features
-            GLSL("vec2 lpos  = "$";                                 \n"
-                 "vec2 lpt   = "$";                                 \n"
-                 "vec2 lsize = vec2(textureSize("$", 0));           \n"
-                 "vec2 frac  = fract(lpos * lsize + vec2(0.5));     \n"
-                 "vec2 frac2 = frac * frac;                         \n"
-                 "vec2 inv   = vec2(1.0) - frac;                    \n"
-                 "vec2 inv2  = inv * inv;                           \n"
-                 "vec2 w0 = 1.0/6.0 * inv2 * inv;                   \n"
-                 "vec2 w1 = 2.0/3.0 - 0.5 * frac2 * (2.0 - frac);   \n"
-                 "vec2 w2 = 2.0/3.0 - 0.5 * inv2  * (2.0 - inv);    \n"
-                 "vec2 w3 = 1.0/6.0 * frac2 * frac;                 \n"
-                 "vec4 g = vec4(w0 + w1, w2 + w3);                  \n"
-                 "vec4 h = vec4(w1, w3) / g + inv.xyxy;             \n"
-                 "h.xy -= vec2(2.0);                                \n"
-                 "vec4 p = lpos.xyxy + lpt.xyxy * h;                \n"
-                 "float l00 = textureLod("$", p.xy, 0.0).r;         \n"
-                 "float l01 = textureLod("$", p.xw, 0.0).r;         \n"
-                 "float l0 = mix(l01, l00, g.y);                    \n"
-                 "float l10 = textureLod("$", p.zy, 0.0).r;         \n"
-                 "float l11 = textureLod("$", p.zw, 0.0).r;         \n"
-                 "float l1 = mix(l11, l10, g.y);                    \n"
-                 "float luma = mix(l1, l0, g.x);                    \n"
-                 // Mix low-resolution tone mapped image with high-resolution
-                 // tone mapped image according to desired strength.
-                 "float highres = clamp(ipt.x, 0.0, 1.0);           \n"
+        if (use_gain) {
+            if (need_recovery && params->contrast_recovery && args->feature_map) {
+                sample_feature_map(sh, args->feature_map);
+                GLSL("float tm_hi = clamp(tm_in, 0.0, 1.0);              \n"
+                     "float tm_lo = clamp(luma, 0.0, 1.0);               \n"
+                     "tm_out = clamp(mix(tone_map(tm_hi),                \n"
+                     "    tone_map(tm_lo) + tm_hi - tm_lo, "$"),         \n"
+                     "    "$", "$");                                     \n",
+                     SH_FLOAT(params->contrast_recovery),
+                     SH_FLOAT(tone.output_min), SH_FLOAT_DYN(tone.output_max));
+            } else {
+                GLSL("tm_out = tone_map(tm_in); \n");
+            }   
+        } else if (need_recovery && params->contrast_recovery && args->feature_map) {
+            sample_feature_map(sh, args->feature_map);
+            // Mix low-resolution tone mapped image with high-resolution
+            // tone mapped image according to desired strength.
+            GLSL("float highres = clamp(ipt.x, 0.0, 1.0);           \n"
                  "float lowres = clamp(luma, 0.0, 1.0);             \n"
                  "float detail = highres - lowres;                  \n"
                  "float base = tone_map(highres);                   \n"
                  "float sharp = tone_map(lowres) + detail;          \n"
                  "ipt.x = clamp(mix(base, sharp, "$"), "$", "$");   \n",
-                 pos, pt, lowres,
-                 lowres, lowres, lowres, lowres,
                  SH_FLOAT(params->contrast_recovery),
                  SH_FLOAT(tone.output_min), SH_FLOAT_DYN(tone.output_max));
 
         } else {
 
             GLSL("ipt.x = tone_map(ipt.x); \n");
+        }
+
+        // The gain path preserves chromaticity by construction and needs
+        // no chroma correction
+        if (!use_gain) {
+            // Avoid raising saturation excessively when raising brightness,
+            // and also desaturate when reducing brightness greatly to
+            // account for the reduction in gamut volume.
+            GLSL("vec2 hull = vec2(i_orig, ipt.x);                  \n"
+                 "hull = ((hull - 6.0) * hull + 9.0) * hull;        \n"
+                 "ipt.yz *= min(i_orig / ipt.x, hull.y / hull.x);   \n");
         }
     }
 
@@ -2080,7 +2141,7 @@ void pl_shader_color_map_ex(pl_shader sh, const struct pl_color_map_params *para
             chroma_weight = t1->trim_chroma_weight;
         }
 
-        GLSL("ipt.x = pow(ipt.x * "$" + "$", "$");  \n",
+        GLSL("tm_out = pow(tm_out * "$" + "$", "$");  \n",
              SH_FLOAT_DYN(slope),
              SH_FLOAT_DYN(offset),
              SH_FLOAT_DYN(power));
@@ -2088,12 +2149,28 @@ void pl_shader_color_map_ex(pl_shader sh, const struct pl_color_map_params *para
         sh_describe(sh, "Dolby Vision Trims");
     }
 
-    // Avoid raising saturation excessively when raising brightness, and
-    // also desaturate when reducing brightness greatly to account for the
-    // reduction in gamut volume.
-    GLSL("vec2 hull = vec2(i_orig, ipt.x);                  \n"
-         "hull = ((hull - 6.0) * hull + 9.0) * hull;        \n"
-         "ipt.yz *= min(1.0, hull.y / hull.x);              \n");
+    if (use_gain) {
+        // Per-pixel gain in linear light. The curve's black-point lift
+        // is split out of the gain and re-applied as an additive
+        // achromatic term.
+        const float flare_nits = pl_hdr_rescale(PL_HDR_PQ, PL_HDR_NITS, tone.output_min);
+        GLSL("vec2 tmg = pow(vec2(tm_in, tm_out), vec2(1.0/%f));         \n"
+             "tmg = pow(max(tmg - %f, 0.0) / (%f - %f * tmg), vec2(1.0/%f)); \n"
+             "float gain = max(tmg.y - %f, 0.0) / max(tmg.x, 1e-6);      \n"
+             "color.rgb = color.rgb * gain + vec3(%f);                   \n",
+             PQ_M2, PQ_C1, PQ_C2, PQ_C3, PQ_M1,
+             flare_nits / 10000.0, flare_nits / PL_COLOR_SDR_WHITE);
+
+        if (need_trims) {
+            GLSL("float dovi_y = dot(color.rgb, vec3(0.22897, 0.69174, 0.07929));   \n"
+                 "vec3 dovi_base = vec3(1 + "$") * color.rgb / vec3(dovi_y);        \n"
+                 "color.rgb = color.rgb * pow(dovi_base, vec3("$"));                \n",
+                 SH_FLOAT_DYN(chroma_weight),
+                 SH_FLOAT_DYN(saturation_gain));
+        }
+        
+        ipt_convert(sh, rgb2lms_i, lms2ipt, false);
+    }
 
     if (need_gamut_map) {
         const struct pl_gamut_map_function *fun = gamut.function;
@@ -2156,14 +2233,6 @@ void pl_shader_color_map_ex(pl_shader sh, const struct pl_color_map_params *para
          PQ_M2, PQ_C1, PQ_C2, PQ_C3, PQ_M1,
          10000 / PL_COLOR_SDR_WHITE,
          SH_MAT3(lms2rgb));
-
-    if (need_trims) {
-        GLSL("float dovi_y = dot(color.rgb, vec3(0.22897, 0.69174, 0.07929));   \n"
-             "vec3 dovi_base = vec3(1 + "$") * color.rgb / vec3(dovi_y);        \n"
-             "color.rgb = color.rgb * pow(dovi_base, vec3("$"));                \n",
-             SH_FLOAT_DYN(chroma_weight),
-             SH_FLOAT_DYN(saturation_gain));
-    }
 
     if (params->show_clipping) {
         GLSL("if (clip_hi) {                                                \n"
