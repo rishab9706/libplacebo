@@ -47,9 +47,21 @@ void pl_hdr_metadata_from_dovi_rpu(struct pl_hdr_metadata *out,
 
             const DoviVdrDmData *vdr_dm_data = dovi_rpu_get_vdr_dm_data(rpu);
             if (vdr_dm_data->dm_data.level1) {
+                int max_pq_offset = 0;
+                int avg_pq_offset = 0;
+                int min_pq_offset = 0;
+
+                if (vdr_dm_data->dm_data.level3) {
+                    const DoviExtMetadataBlockLevel3 *l3 = vdr_dm_data->dm_data.level3;
+                    max_pq_offset = l3->max_pq_offset - 2048;
+                    avg_pq_offset = l3->avg_pq_offset - 2048;
+                    min_pq_offset = l3->min_pq_offset - 2048;
+                }
+
                 const DoviExtMetadataBlockLevel1 *l1 = vdr_dm_data->dm_data.level1;
-                out->max_pq_y = l1->max_pq / 4095.0f;
-                out->avg_pq_y = l1->avg_pq / 4095.0f;
+                out->dovi_max_pq = (l1->max_pq + max_pq_offset) / 4095.0f;
+                out->dovi_avg_pq = (l1->avg_pq + avg_pq_offset) / 4095.0f;
+                out->dovi_min_pq = (l1->min_pq + min_pq_offset) / 4095.0f;
             }
 
             dovi_rpu_free_vdr_dm_data(vdr_dm_data);
