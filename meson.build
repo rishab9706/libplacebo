@@ -12,6 +12,7 @@ project('libplacebo', ['c', 'cpp'],
     7,
     # API version
     {
+      '373': 'add pl_hdr_metadata.dovi_trims',
       '372': 'add PL_HDR_METADATA_DOLBYVISION and use dovi_min_pq for tonemapping',
       '371': 'input frame.hdr.max_luma is now respecte when frame has ICC profile',
       '370': 'deprecate pl_avdovi_metadata_supported and pl_avframe_params.map_dovi_force',

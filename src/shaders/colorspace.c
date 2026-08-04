@@ -1847,6 +1847,8 @@ void pl_shader_color_map_ex(pl_shader sh, const struct pl_color_map_params *para
 
     bool need_tone_map = !pl_tone_map_params_noop(&tone);
     bool need_gamut_map = !pl_gamut_map_params_noop(&gamut);
+    bool need_trims = tone.hdr.num_dovi_trims && 
+                      pl_hdr_rescale(tone.output_scaling, PL_HDR_NITS, tone.output_max) < tone.hdr.max_luma;
 
     if (!args->prelinearized)
         pl_shader_linearize(sh, &src);
@@ -1866,7 +1868,7 @@ void pl_shader_color_map_ex(pl_shader sh, const struct pl_color_map_params *para
     }
 
     // Fast path: simply convert between primaries (if needed)
-    if (!need_tone_map && !need_gamut_map) {
+    if (!need_tone_map && !need_gamut_map && !need_trims) {
         if (src.primaries != dst.primaries) {
             sh_describe(sh, "colorspace conversion");
             pl_matrix3x3_mul(&lms2rgb, &rgb2lms);
@@ -2010,14 +2012,86 @@ void pl_shader_color_map_ex(pl_shader sh, const struct pl_color_map_params *para
 
             GLSL("ipt.x = tone_map(ipt.x); \n");
         }
-
-        // Avoid raising saturation excessively when raising brightness, and
-        // also desaturate when reducing brightness greatly to account for the
-        // reduction in gamut volume.
-        GLSL("vec2 hull = vec2(i_orig, ipt.x);                  \n"
-             "hull = ((hull - 6.0) * hull + 9.0) * hull;        \n"
-             "ipt.yz *= min(i_orig / ipt.x, hull.y / hull.x);   \n");
     }
+
+    float slope = 1.0f, power = 1.0f,  offset = 0.0f;
+    float saturation_gain = 0.0f, chroma_weight = 0.0f;
+    if (need_trims) {
+        float output_max_pq = pl_hdr_rescale(tone.output_scaling, PL_HDR_PQ, tone.output_max);
+        const struct pl_hdr_dovi_trims *t1 = NULL;
+        const struct pl_hdr_dovi_trims *t2 = NULL;
+
+        for (int i = 0; i < tone.hdr.num_dovi_trims; i++) {
+            if (tone.hdr.dovi_trims[i].target_max_pq <= output_max_pq)
+                t1 = &tone.hdr.dovi_trims[i];
+            if (tone.hdr.dovi_trims[i].target_max_pq >= output_max_pq) {
+                t2 = &tone.hdr.dovi_trims[i];
+                break;
+            }
+        }
+
+        // Case 1: output max is lower than all targets                                                                       
+        if (!t1 && t2) {                                                                                                      
+            slope = t2->trim_slope;                                                                                           
+            offset = t2->trim_offset;                                                                                         
+            power = t2->trim_power;                                                                                           
+            saturation_gain = t2->trim_saturation_gain;                                                                       
+            chroma_weight = t2->trim_chroma_weight;                                                                           
+        }                                                                                                                     
+                                                                                                                                
+        // Case 2: output max is higher than all targets                                                                      
+        else if (t1 && !t2) {                                                                                                 
+            float max_luma_pq = pl_hdr_rescale(PL_HDR_NITS, PL_HDR_PQ, tone.hdr.max_luma);                                    
+            float inv_out = 1.0f / output_max_pq;                                                                             
+            float inv_t1 = 1.0f / t1->target_max_pq;                                                                          
+            float inv_max = 1.0f / max_luma_pq;                                                                               
+                                                                                                                                
+            float w = (inv_out - inv_t1) / (inv_max - inv_t1);                                                                
+                                                                                                                                
+            slope = PL_MIX(t1->trim_slope, 1.0f, w);                                                                          
+            offset = PL_MIX(t1->trim_offset, 0.0f, w);                                                                        
+            power = PL_MIX(t1->trim_power, 1.0f, w);                                                                          
+            saturation_gain = PL_MIX(t1->trim_saturation_gain, 0.0f, w);                                                      
+            chroma_weight = PL_MIX(t1->trim_chroma_weight, 0.0f, w);                                                          
+        }                                                                                                                     
+                                                                                                                                
+        // Case 3: output max is strictly between two targets                                                                 
+        else if (t1 != t2 && t2->target_max_pq > t1->target_max_pq) {                                                         
+            float inv_out = 1.0f / output_max_pq;                                                                             
+            float inv_t1 = 1.0f / t1->target_max_pq;                                                                          
+            float inv_t2 = 1.0f / t2->target_max_pq;                                                                          
+                                                                                                                                
+            float w = (inv_out - inv_t1) / (inv_t2 - inv_t1);                                                                 
+                                                                                                                                
+            slope = PL_MIX(t1->trim_slope, t2->trim_slope, w);                                                                
+            offset = PL_MIX(t1->trim_offset, t2->trim_offset, w);                                                             
+            power = PL_MIX(t1->trim_power, t2->trim_power, w);                                                                
+            saturation_gain = PL_MIX(t1->trim_saturation_gain, t2->trim_saturation_gain, w);                                  
+            chroma_weight = PL_MIX(t1->trim_chroma_weight, t2->trim_chroma_weight, w);                                        
+        }
+
+        else {
+            slope = t1->trim_slope;
+            offset = t1->trim_offset;
+            power = t1->trim_power;
+            saturation_gain = t1->trim_saturation_gain;
+            chroma_weight = t1->trim_chroma_weight;
+        }
+
+        GLSL("ipt.x = pow(ipt.x * "$" + "$", "$");  \n",
+             SH_FLOAT_DYN(slope),
+             SH_FLOAT_DYN(offset),
+             SH_FLOAT_DYN(power));
+
+        sh_describe(sh, "Dolby Vision Trims");
+    }
+
+    // Avoid raising saturation excessively when raising brightness, and
+    // also desaturate when reducing brightness greatly to account for the
+    // reduction in gamut volume.
+    GLSL("vec2 hull = vec2(i_orig, ipt.x);                  \n"
+         "hull = ((hull - 6.0) * hull + 9.0) * hull;        \n"
+         "ipt.yz *= min(1.0, hull.y / hull.x);              \n");
 
     if (need_gamut_map) {
         const struct pl_gamut_map_function *fun = gamut.function;
@@ -2080,6 +2154,14 @@ void pl_shader_color_map_ex(pl_shader sh, const struct pl_color_map_params *para
          PQ_M2, PQ_C1, PQ_C2, PQ_C3, PQ_M1,
          10000 / PL_COLOR_SDR_WHITE,
          SH_MAT3(lms2rgb));
+
+    if (need_trims) {
+        GLSL("float dovi_y = dot(color.rgb, vec3(0.22897, 0.69174, 0.07929));   \n"
+             "vec3 dovi_base = vec3(1 + "$") * color.rgb / vec3(dovi_y);        \n"
+             "color.rgb = color.rgb * pow(dovi_base, vec3("$"));                \n",
+             SH_FLOAT_DYN(chroma_weight),
+             SH_FLOAT_DYN(saturation_gain));
+    }
 
     if (params->show_clipping) {
         GLSL("if (clip_hi) {                                                \n"
