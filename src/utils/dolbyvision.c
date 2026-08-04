@@ -64,6 +64,30 @@ void pl_hdr_metadata_from_dovi_rpu(struct pl_hdr_metadata *out,
                 out->dovi_min_pq = (l1->min_pq + min_pq_offset) / 4095.0f;
             }
 
+            if (vdr_dm_data->dm_data.level2.len) {
+                out->num_dovi_trims = PL_MIN(vdr_dm_data->dm_data.level2.len, PL_ARRAY_SIZE(out->dovi_trims));
+                for (int i = 0; i < out->num_dovi_trims; i++) {
+                    const DoviExtMetadataBlockLevel2 *l2 = vdr_dm_data->dm_data.level2.list[i];
+                    out->dovi_trims[i].target_max_pq = l2->target_max_pq / 4095.0f;
+                    out->dovi_trims[i].trim_slope = l2->trim_slope / 4096.0f + 0.5f;
+                    out->dovi_trims[i].trim_offset = l2->trim_offset / 4096.0f - 0.5f;
+                    out->dovi_trims[i].trim_power = l2->trim_power / 4096.0f + 0.5f;
+                    out->dovi_trims[i].trim_saturation_gain = l2->trim_saturation_gain / 4096.0f - 0.5f;
+                    out->dovi_trims[i].trim_chroma_weight = l2->trim_chroma_weight / 4096.0f - 0.5f;
+                }
+
+                // Sort trims by target_max_pq
+                for (int i = 0; i < out->num_dovi_trims - 1; i++) {
+                    for (int j = i + 1; j < out->num_dovi_trims; j++) {
+                        if (out->dovi_trims[i].target_max_pq > out->dovi_trims[j].target_max_pq) {
+                            struct pl_hdr_dovi_trims tmp = out->dovi_trims[i];
+                            out->dovi_trims[i] = out->dovi_trims[j];
+                            out->dovi_trims[j] = tmp;
+                        }
+                    }
+                }
+            }
+
             dovi_rpu_free_vdr_dm_data(vdr_dm_data);
         }
 

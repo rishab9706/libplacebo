@@ -426,6 +426,16 @@ struct pl_hdr_bezier {
     uint8_t num_anchors;
 };
 
+// Dolby Vision l2 trims
+struct pl_hdr_dovi_trims {
+    float target_max_pq;
+    float trim_slope;
+    float trim_offset;
+    float trim_power;
+    float trim_saturation_gain;
+    float trim_chroma_weight;
+};
+
 // Represents raw HDR metadata as defined by SMPTE 2086 / CTA 861.3, which is
 // often attached to HDR sources and can be forwarded to HDR-capable displays,
 // or used to guide the libplacebo built-in tone mapping. Values left as 0
@@ -460,6 +470,8 @@ struct pl_hdr_metadata {
     float dovi_max_pq;              // Dolby Vision maximum PQ luminance (in PQ, 0-1)
     float dovi_avg_pq;              // Dolby Vision averaged PQ luminance (in PQ, 0-1)
     float dovi_min_pq;              // Dolby Vision minimum PQ luminance (in PQ, 0-1)
+    struct pl_hdr_dovi_trims dovi_trims[8];
+    int num_dovi_trims;
 };
 
 PL_API extern const struct pl_hdr_metadata pl_hdr_metadata_empty; // equal to {0}

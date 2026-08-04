@@ -427,6 +427,13 @@ static inline bool pl_hdr_bezier_equal(const struct pl_hdr_bezier *a,
            !memcmp(a->anchors, b->anchors, sizeof(a->anchors[0]) * a->num_anchors);
 }
 
+static inline bool pl_hdr_dovi_trims_equal(const struct pl_hdr_metadata *a,
+                                           const struct pl_hdr_metadata *b)
+{
+    return a->num_dovi_trims == 0 ||
+           !memcmp(a->dovi_trims, b->dovi_trims, a->num_dovi_trims * sizeof(a->dovi_trims[0]));
+}
+
 bool pl_hdr_metadata_equal(const struct pl_hdr_metadata *a,
                            const struct pl_hdr_metadata *b)
 {
@@ -444,7 +451,9 @@ bool pl_hdr_metadata_equal(const struct pl_hdr_metadata *a,
            a->avg_pq_y == b->avg_pq_y &&
            a->dovi_max_pq == b->dovi_max_pq &&
            a->dovi_avg_pq == b->dovi_avg_pq &&
-           a->dovi_min_pq == b->dovi_min_pq;
+           a->dovi_min_pq == b->dovi_min_pq &&
+           a->num_dovi_trims == b->num_dovi_trims &&
+           pl_hdr_dovi_trims_equal(a, b);
 }
 
 void pl_hdr_metadata_merge(struct pl_hdr_metadata *orig,
@@ -475,6 +484,10 @@ void pl_hdr_metadata_merge(struct pl_hdr_metadata *orig,
         orig->dovi_avg_pq = update->dovi_avg_pq;
     if (!orig->dovi_min_pq)
         orig->dovi_min_pq = update->dovi_min_pq;
+    if (!orig->num_dovi_trims && update->num_dovi_trims) {
+        orig->num_dovi_trims = update->num_dovi_trims;
+        memcpy(orig->dovi_trims, update->dovi_trims, update->num_dovi_trims * sizeof(orig->dovi_trims[0]));
+    }
 }
 
 bool pl_hdr_metadata_contains(const struct pl_hdr_metadata *data,
