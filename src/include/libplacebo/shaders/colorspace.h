@@ -324,6 +324,9 @@ struct pl_color_map_params {
     // pixels that exceed the claimed source luminance range).
     bool show_clipping;
 
+    //Dolby Vision trims
+    bool dovi_trims;
+
     // --- Deprecated fields
     PL_DEPRECATED_IN(v6.269) enum pl_tone_map_mode tone_mapping_mode; // removed
     PL_DEPRECATED_IN(v6.311) float tone_mapping_param;        // see `tone_constants`
@@ -342,7 +345,8 @@ struct pl_color_map_params {
     .lut3d_size             = {48, 32, 256},                    \
     .lut_size               = 256,                              \
     .visualize_rect         = {0, 0, 1, 1},                     \
-    .contrast_smoothness    = 3.5f,
+    .contrast_smoothness    = 3.5f,                             \
+    .dovi_trims             = true,
 
 #define PL_COLOR_MAP_HQ_DEFAULTS                                \
     PL_COLOR_MAP_DEFAULTS                                       \

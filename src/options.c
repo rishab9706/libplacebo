@@ -995,6 +995,7 @@ const struct pl_opt_t pl_option_list[] = {
     OPT_FLOAT("linear_knee", "Tone mapping linear knee point", color_map_params.tone_constants.linear_knee, .max = 1.0f),
     OPT_FLOAT("exposure", "Tone mapping linear exposure", color_map_params.tone_constants.exposure, .max = 10.0f),
     OPT_BOOL("inverse_tone_mapping", "Inverse tone mapping", color_map_params.inverse_tone_mapping),
+    OPT_BOOL("dovi_trims", "Dolby Vision L2 trims", color_map_params.dovi_trims),
     OPT_ENUM("tone_map_metadata", "Source of HDR metadata to use", color_map_params.metadata, LIST(
              {"any",       PL_HDR_METADATA_ANY},
              {"none",      PL_HDR_METADATA_NONE},
