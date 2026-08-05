@@ -1849,7 +1849,8 @@ void pl_shader_color_map_ex(pl_shader sh, const struct pl_color_map_params *para
     bool need_gamut_map = !pl_gamut_map_params_noop(&gamut);
     bool need_trims = tone.hdr.num_dovi_trims && 
                       pl_hdr_rescale(tone.output_scaling, PL_HDR_NITS, tone.output_max) < tone.hdr.max_luma &&
-                      params->dovi_trims;
+                      params->dovi_trims &&
+                      tone.function == &pl_tone_map_st2094_10;
 
     if (!args->prelinearized)
         pl_shader_linearize(sh, &src);
