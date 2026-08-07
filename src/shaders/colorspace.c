@@ -636,10 +636,10 @@ void pl_shader_encode_color(pl_shader sh, const struct pl_color_repr *repr)
     GLSL("}\n");
 }
 
-static ident_t sh_luma_coeffs(pl_shader sh, const struct pl_color_space *csp)
+static ident_t sh_luma_coeffs(pl_shader sh, const struct pl_raw_primaries *prim)
 {
     pl_matrix3x3 rgb2xyz;
-    rgb2xyz = pl_get_rgb2xyz_matrix(pl_raw_primaries_get(csp->primaries));
+    rgb2xyz = pl_get_rgb2xyz_matrix(prim);
 
     ident_t coeffs = sh_fresh(sh, "luma_coeffs");
     GLSLH("const vec3 "$" = vec3("$", "$", "$"); \n", coeffs,
@@ -744,7 +744,9 @@ void pl_shader_linearize(pl_shader sh, const struct pl_color_space *csp)
         // OOTF
         GLSL("color.rgb *= 1.0 / 12.0;                                      \n"
              "color.rgb *= "$" * pow(max(dot("$", color.rgb), 0.0), "$");   \n",
-             SH_FLOAT(csp_max), sh_luma_coeffs(sh, csp), SH_FLOAT(y - 1));
+             SH_FLOAT(csp_max),
+             sh_luma_coeffs(sh, pl_raw_primaries_get(csp->primaries)),
+             SH_FLOAT(y - 1));
         return;
     }
     case PL_COLOR_TRC_V_LOG:
@@ -873,7 +875,9 @@ void pl_shader_delinearize(pl_shader sh, const struct pl_color_space *csp)
         // OOTF^-1
         GLSL("color.rgb *= 1.0 / "$";                                       \n"
              "color.rgb *= 12.0 * pow(max(1e-6, dot("$", color.rgb)), "$"); \n",
-             SH_FLOAT(csp_max), sh_luma_coeffs(sh, csp), SH_FLOAT((1 - y) / y));
+             SH_FLOAT(csp_max),
+             sh_luma_coeffs(sh, pl_raw_primaries_get(csp->primaries)),
+             SH_FLOAT((1 - y) / y));
         // OETF
         GLSL("color.rgb = mix(vec3(0.5) * sqrt(color.rgb),                      \n"
              "                vec3(%f) * log(color.rgb - vec3(%f)) + vec3(%f),  \n"
@@ -971,6 +975,34 @@ void pl_shader_unsigmoidize(pl_shader sh, const struct pl_sigmoid_params *params
 
 const struct pl_peak_detect_params pl_peak_detect_default_params = { PL_PEAK_DETECT_DEFAULTS };
 const struct pl_peak_detect_params pl_peak_detect_high_quality_params = { PL_PEAK_DETECT_HQ_DEFAULTS };
+
+// Decide whether to use the mastering space for tone mapping.
+static bool use_mastering_space(const struct pl_color_space *csp,
+                                pl_matrix3x3 *out_mat)
+{
+    const struct pl_raw_primaries *cont = pl_raw_primaries_get(csp->primaries);
+    const struct pl_raw_primaries *mast = &csp->hdr.prim;
+    if (!pl_primaries_valid(mast) || pl_raw_primaries_equal(mast, cont))
+        return false;
+    // The mastering gamut must lie within the container.
+    const pl_matrix3x3 m2c = pl_get_color_mapping_matrix(mast, cont,
+                                        PL_INTENT_RELATIVE_COLORIMETRIC);
+    for (int i = 0; i < 3; i++) {
+        for (int j = 0; j < 3; j++) {
+            if (m2c.m[i][j] < -0.01f)
+                return false;
+        }
+    }
+    if (out_mat) {
+        // Relative colorimetric, so equal channels mean display-neutral.
+        // The adaptation for non-D65 mastering whites cancels against the
+        // D65 normalization in `pl_ipt_rgb2lms`, preserving absolute
+        // colorimetry end to end.
+        *out_mat = pl_get_color_mapping_matrix(cont, mast,
+                                               PL_INTENT_RELATIVE_COLORIMETRIC);
+    }
+    return true;
+}
 
 static bool peak_detect_params_eq(const struct pl_peak_detect_params *a,
                                   const struct pl_peak_detect_params *b)
@@ -1350,10 +1382,17 @@ retry_ssbo:
     pl_color_space_infer(&csp);
     pl_shader_linearize(sh, &csp);
 
+    pl_matrix3x3 space_mat;
+    const struct pl_raw_primaries *space = pl_raw_primaries_get(csp.primaries);
+    if (use_mastering_space(&csp, &space_mat)) {
+        space = &csp.hdr.prim;
+        GLSL("color.rgb = "$" * color.rgb; \n", SH_MAT3(space_mat));
+    }
+
     bool has_subgroups = sh_glsl(sh).subgroup_size > 0;
     const float cutoff = fmaxf(params->black_cutoff, 0.0f) * 1e-2f;
 #pragma GLSL /* Measure luminance as N-bit PQ */                                \
-    float luma = dot(${sh_luma_coeffs(sh, &csp)}, color.rgb);                   \
+    float luma = dot(${sh_luma_coeffs(sh, space)}, color.rgb);                  \
     luma *= ${const float: PL_COLOR_SDR_WHITE / 10000.0};                       \
     luma = pow(clamp(luma, 0.0, 1.0), ${const float: PQ_M1});                   \
     luma = (${const float: PQ_C1} + ${const float: PQ_C2} * luma) /             \
@@ -1763,10 +1802,16 @@ void pl_shader_color_map_ex(pl_shader sh, const struct pl_color_map_params *para
     }
 
     const int *lut3d_size_def = pl_color_map_default_params.lut3d_size;
+    // Tone mapping and the gamut-mapping source extent share this space
+    pl_matrix3x3 space_mat;
+    const bool use_mast_space = use_mastering_space(&src, &space_mat);
+    const struct pl_raw_primaries *src_space = use_mast_space
+        ? &src.hdr.prim : pl_raw_primaries_get(src.primaries);
+
     struct pl_gamut_map_params gamut = {
         .function        = PL_DEF(params->gamut_mapping, &pl_gamut_map_clip),
         .constants       = params->gamut_constants,
-        .input_gamut     = src.hdr.prim,
+        .input_gamut     = *src_space,
         .output_gamut    = dst.hdr.prim,
         .lut_size_I      = PL_DEF(params->lut3d_size[0], lut3d_size_def[0]),
         .lut_size_C      = PL_DEF(params->lut3d_size[1], lut3d_size_def[1]),
@@ -1877,6 +1922,12 @@ void pl_shader_color_map_ex(pl_shader sh, const struct pl_color_map_params *para
             GLSL("color.rgb = "$" * color.rgb; \n", SH_MAT3(lms2rgb));
         }
         goto done;
+    }
+
+    // Convert the pixel into the tone-mapping RGB space.
+    if (use_mast_space) {
+        GLSL("color.rgb = "$" * color.rgb; \n", SH_MAT3(space_mat));
+        rgb2lms = pl_ipt_rgb2lms(src_space);
     }
 
     // Full path: convert input from normalized RGB to IPT
