@@ -2091,9 +2091,27 @@ void pl_shader_color_map_ex(pl_shader sh, const struct pl_color_map_params *para
     // Avoid raising saturation excessively when raising brightness, and
     // also desaturate when reducing brightness greatly to account for the
     // reduction in gamut volume.
-    GLSL("vec2 hull = vec2(i_orig, ipt.x);                  \n"
-         "hull = ((hull - 6.0) * hull + 9.0) * hull;        \n"
-         "ipt.yz *= min(1.0, hull.y / hull.x);              \n");
+    if (need_tone_map || need_trims) {
+        GLSL("float saturation_scale = (pow(ipt.x - 1.0, 3) + 1.0) /    \n"
+             "                         (pow(i_orig - 1.0, 3) + 1.0);    \n"
+             "saturation_scale = min(1.0, saturation_scale);            \n"
+             "float c1 = (ipt.x - %f) / (%f - "$");                     \n"
+             "c1 = clamp(0.0, 1.0, c1);                                 \n"
+             "float c2 = sign(c1 - 1.0) * pow(c1 - 1.0, 2) + 1.0;       \n"
+             "float c3 = (i_orig * 4095.0 - 25.0) / (900.0 - 25.0);     \n"
+             "c3 = clamp(0.0, 1.0, c3);                                 \n"
+             "float c4 = sign(c3 - 1.0) * pow(c3 - 1.0, 2) + 1.0;       \n"
+             "float mesopic_preservation = c2 * c4;                     \n"
+             "ipt.yz *= saturation_scale * mesopic_preservation;        \n",
+             tone.output_min, tone.output_min, SH_FLOAT_DYN(tone.input_min));
+    }
+
+    if (need_trims) {
+        GLSL("float S = 2.0 * length(ipt.yz);                       \n"
+             "ipt.x *= (1.0 + "$" * S);                             \n"
+             "ipt.yz *= "$";                                        \n",
+             SH_FLOAT_DYN(chroma_weight), SH_FLOAT_DYN(1.0f + saturation_gain));
+    }
 
     if (need_gamut_map) {
         const struct pl_gamut_map_function *fun = gamut.function;
@@ -2156,14 +2174,6 @@ void pl_shader_color_map_ex(pl_shader sh, const struct pl_color_map_params *para
          PQ_M2, PQ_C1, PQ_C2, PQ_C3, PQ_M1,
          10000 / PL_COLOR_SDR_WHITE,
          SH_MAT3(lms2rgb));
-
-    if (need_trims) {
-        GLSL("float dovi_y = dot(color.rgb, vec3(0.22897, 0.69174, 0.07929));   \n"
-             "vec3 dovi_base = vec3(1 + "$") * color.rgb / vec3(dovi_y);        \n"
-             "color.rgb = color.rgb * pow(dovi_base, vec3("$"));                \n",
-             SH_FLOAT_DYN(chroma_weight),
-             SH_FLOAT_DYN(saturation_gain));
-    }
 
     if (params->show_clipping) {
         GLSL("if (clip_hi) {                                                \n"
