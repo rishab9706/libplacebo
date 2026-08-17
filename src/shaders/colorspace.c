@@ -2109,8 +2109,8 @@ void pl_shader_color_map_ex(pl_shader sh, const struct pl_color_map_params *para
     if (need_trims) {
         GLSL("float S = length(ipt.yz);                 \n"
              "float chroma_weight = "$";                \n"
-             "float tone_c2 = chroma_weight * 4.0;      \n"
-             "float chroma_c2 = chroma_weight * 3.0;    \n"
+             "float tone_c2 = chroma_weight * 2.0;      \n"
+             "float chroma_c2 = chroma_weight * 1.5;    \n"
              "ipt.x *= (1.0 + S * tone_c2);             \n"
              "ipt.yz *= "$" * (1.0 + S * chroma_c2);    \n",
              SH_FLOAT_DYN(chroma_weight), SH_FLOAT_DYN(1.0f + saturation_gain));
