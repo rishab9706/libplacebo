@@ -2094,16 +2094,22 @@ void pl_shader_color_map_ex(pl_shader sh, const struct pl_color_map_params *para
     if (need_tone_map || need_trims) {
         GLSL("float saturation_scale = (pow(ipt.x - 1.0, 3) + 1.0) /    \n"
              "                         (pow(i_orig - 1.0, 3) + 1.0);    \n"
-             "float c1 = (ipt.x - "$") / "$";                           \n"
-             "c1 = clamp(c1, 0.0, 1.0);                                 \n"
-             "float c2 = sign(c1 - 1.0) * pow(c1 - 1.0, 2) + 1.0;       \n"
-             "float c3 = (i_orig * 4095.0 - 25.0) / (900.0 - 25.0);     \n"
-             "c3 = clamp(c3, 0.0, 1.0);                                 \n"
-             "float c4 = sign(c3 - 1.0) * pow(c3 - 1.0, 2) + 1.0;       \n"
-             "float mesopic_preservation = c2 * c4;                     \n"
-             "ipt.yz *= saturation_scale * mesopic_preservation;        \n",
-             SH_FLOAT(tone.output_min),
-             SH_FLOAT_DYN(PL_MAX(1e-6f, tone.output_min - tone.input_min)));
+             "ipt.yz *= saturation_scale;                               \n");
+
+        bool need_mesopic = tone.output_min < tone.input_min ||
+                            slope > 1.0f || offset > 0.0f || power < 1.0f;
+        if (need_mesopic) {
+            GLSL("float c1 = (ipt.x - "$") / "$";                           \n"
+                 "c1 = clamp(c1, 0.0, 1.0);                                 \n"
+                 "float c2 = sign(c1 - 1.0) * pow(c1 - 1.0, 2) + 1.0;       \n"
+                 "float c3 = (i_orig * 4095.0 - 25.0) / (900.0 - 25.0);     \n"
+                 "c3 = clamp(c3, 0.0, 1.0);                                 \n"
+                 "float c4 = sign(c3 - 1.0) * pow(c3 - 1.0, 2) + 1.0;       \n"
+                 "float mesopic_preservation = c2 * c4;                     \n"
+                 "ipt.yz *= mesopic_preservation;                           \n",
+                 SH_FLOAT(tone.output_min),
+                 SH_FLOAT_DYN(PL_MAX(1e-6f, tone.output_min - tone.input_min)));
+        }
     }
 
     if (need_trims) {
