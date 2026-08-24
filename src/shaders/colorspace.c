@@ -1760,6 +1760,7 @@ void pl_shader_color_map_ex(pl_shader sh, const struct pl_color_map_params *para
         // fixes clipping if the metadata is under-reported, which is actually
         // quite common for Dolby Vision content.
         tone.input_max = PL_MAX(tone.input_max, tone.output_max);
+        tone.input_min = PL_MIN(tone.input_min, tone.output_min);
     }
 
     const int *lut3d_size_def = pl_color_map_default_params.lut3d_size;
