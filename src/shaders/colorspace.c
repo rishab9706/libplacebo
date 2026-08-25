@@ -2097,8 +2097,7 @@ void pl_shader_color_map_ex(pl_shader sh, const struct pl_color_map_params *para
              "                         (pow(i_orig - 1.0, 3) + 1.0);    \n"
              "ipt.yz *= saturation_scale;                               \n");
 
-        bool need_mesopic = tone.output_min < tone.input_min ||
-                            slope > 1.0f || offset > 0.0f || power < 1.0f;
+        bool need_mesopic = tone.output_min > tone.input_min;
         if (need_mesopic) {
             GLSL("float c1 = (ipt.x - "$") / "$";                           \n"
                  "c1 = clamp(c1, 0.0, 1.0);                                 \n"
