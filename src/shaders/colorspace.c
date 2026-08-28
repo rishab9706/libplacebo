@@ -2093,9 +2093,10 @@ void pl_shader_color_map_ex(pl_shader sh, const struct pl_color_map_params *para
     // also desaturate when reducing brightness greatly to account for the
     // reduction in gamut volume.
     if (need_tone_map || need_trims) {
-        GLSL("float saturation_scale = (pow(ipt.x - 1.0, 3) + 1.0) /    \n"
-             "                         (pow(i_orig - 1.0, 3) + 1.0);    \n"
-             "ipt.yz *= saturation_scale;                               \n");
+        GLSL("vec2 hull = vec2(ipt.x - 1.0, i_orig - 1.0);          \n"
+             "hull = hull * hull * hull + vec2(1.0);                \n"
+             "float saturation_scale = hull.x / max(1e-6, hull.y);  \n"
+             "ipt.yz *= saturation_scale;                           \n");
 
         bool need_soft_crush = tone.output_min > tone.input_min;
         if (need_soft_crush) {
