@@ -2097,19 +2097,23 @@ void pl_shader_color_map_ex(pl_shader sh, const struct pl_color_map_params *para
              "                         (pow(i_orig - 1.0, 3) + 1.0);    \n"
              "ipt.yz *= saturation_scale;                               \n");
 
-        bool need_mesopic = tone.output_min > tone.input_min;
-        if (need_mesopic) {
-            GLSL("float c1 = (ipt.x - "$") / "$";                           \n"
-                 "c1 = clamp(c1, 0.0, 1.0);                                 \n"
-                 "float c2 = sign(c1 - 1.0) * pow(c1 - 1.0, 2) + 1.0;       \n"
-                 "float c3 = (i_orig * 4095.0 - 25.0) / (900.0 - 25.0);     \n"
-                 "c3 = clamp(c3, 0.0, 1.0);                                 \n"
-                 "float c4 = sign(c3 - 1.0) * pow(c3 - 1.0, 2) + 1.0;       \n"
-                 "float mesopic_preservation = c2 * c4;                     \n"
-                 "ipt.yz *= mesopic_preservation;                           \n",
+        bool need_soft_crush = tone.output_min > tone.input_min;
+        if (need_soft_crush) {
+            GLSL("float c1 = (ipt.x - "$") / "$";   \n"
+                 "c1 = clamp(c1, 0.0, 1.0);         \n"
+                 "float d1 = 1.0 - c1;              \n"
+                 "float c2 = 1.0 - (d1 * d1);       \n"
+                 "ipt.yz *= c2;                     \n",
                  SH_FLOAT(tone.output_min),
                  SH_FLOAT_DYN(PL_MAX(1e-6f, tone.output_min - tone.input_min)));
         }
+        
+        GLSL("vec2 c3 = (vec2(i_orig, ipt.x) * 4095.0 - 25.0) / 875.0;            \n"
+             "c3 = clamp(c3, 0.0, 1.0);                                           \n"
+             "vec2 d3 = 1.0 - c3;                                                 \n"
+             "vec2 c4 = 1.0 - (d3 * d3);                                          \n"
+             "float mesopic_scale = clamp(c4.x / max(1e-6, c4.y), 0.0, 1.0);      \n"
+             "ipt.yz *= mesopic_scale;                                            \n");
     }
 
     if (need_trims) {
