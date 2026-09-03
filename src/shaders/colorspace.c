@@ -2054,7 +2054,12 @@ void pl_shader_color_map_ex(pl_shader sh, const struct pl_color_map_params *para
             offset = PL_MIX(t1->trim_offset, 0.0f, w);                                                                        
             power = PL_MIX(t1->trim_power, 1.0f, w);                                                                          
             saturation_gain = PL_MIX(t1->trim_saturation_gain, 0.0f, w);                                                      
-            chroma_weight = PL_MIX(t1->trim_chroma_weight, 0.0f, w);                                                          
+            chroma_weight = PL_MIX(t1->trim_chroma_weight, 0.0f, w);
+            
+            if (t1->target_max_pq < pl_hdr_rescale(PL_HDR_NITS, PL_HDR_PQ, 110.0f)) {
+                saturation_gain = 0.0f;
+                chroma_weight = 0.0f;
+            }
         }                                                                                                                     
                                                                                                                                 
         // Case 3: output max is strictly between two targets                                                                 
@@ -2069,7 +2074,15 @@ void pl_shader_color_map_ex(pl_shader sh, const struct pl_color_map_params *para
             offset = PL_MIX(t1->trim_offset, t2->trim_offset, w);                                                             
             power = PL_MIX(t1->trim_power, t2->trim_power, w);                                                                
             saturation_gain = PL_MIX(t1->trim_saturation_gain, t2->trim_saturation_gain, w);                                  
-            chroma_weight = PL_MIX(t1->trim_chroma_weight, t2->trim_chroma_weight, w);                                        
+            chroma_weight = PL_MIX(t1->trim_chroma_weight, t2->trim_chroma_weight, w);
+            
+            if (t2->trim_chroma_weight == 0.0f &&
+                t2->trim_saturation_gain == 0.0f &&
+                t1->target_max_pq < pl_hdr_rescale(PL_HDR_NITS, PL_HDR_PQ, 110.0f))
+            {
+                saturation_gain = 0.0f;
+                chroma_weight = 0.0f;
+            }
         }
 
         else {
