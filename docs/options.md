@@ -453,6 +453,10 @@ are available:
     This does *not* currently include the subjective gain/offset/gamma controls
     defined in Annex B.3. (Open an issue with a valid sample file if you want
     such parameters to be respected.)
+- `st2094-10-v2`: Modified version of the SMPTE ST 2094-10
+!!! warning
+    Works best with HDR10+ and Dolby Vision metadata. CIE Y values derived from
+    peak detection can cause brightness fluctuations.
 - `bt2390`: EETF from the ITU-R Report BT.2390, a hermite spline roll-off with
   linear segment.
 - `bt2446a`: EETF from ITU-R Report BT.2446, method A. Can be used for both

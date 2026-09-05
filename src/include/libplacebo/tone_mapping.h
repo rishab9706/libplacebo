@@ -65,7 +65,7 @@ struct pl_tone_map_constants {
     // while a value of 0.0 never modifies scene brightness. [0,1]
     //
     // Affects all methods that use the ST2094 knee point determination
-    // (currently ST2094-40, ST2094-10 and spline)
+    // (currently ST2094-40, ST2094-10, ST2094-10-v2 and spline)
     float knee_adaptation;
 
     // Configures the knee point minimum and maximum, respectively, as
@@ -205,6 +205,9 @@ PL_API extern const struct pl_tone_map_function pl_tone_map_st2094_40;
 // controls defined in Annex B.3. (Open an issue with a valid sample file if
 // you want such parameters to be respected.)
 PL_API extern const struct pl_tone_map_function pl_tone_map_st2094_10;
+
+// Modified version of the SMPTE ST2094-10
+PL_API extern const struct pl_tone_map_function pl_tone_map_st2094_10_v2;
 
 // EETF from the ITU-R Report BT.2390, a hermite spline roll-off with linear
 // segment.

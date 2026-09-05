@@ -82,7 +82,8 @@ void pl_tone_map_params_infer(struct pl_tone_map_params *par)
 
     if (par->param) {
         // Backwards compatibility for older API
-        if (par->function == &pl_tone_map_st2094_40 || par->function == &pl_tone_map_st2094_10)
+        if (par->function == &pl_tone_map_st2094_40 || par->function == &pl_tone_map_st2094_10 ||
+            par->function == &pl_tone_map_st2094_10_v2)
             par->constants.knee_adaptation = par->param;
         if (par->function == &pl_tone_map_bt2390)
             par->constants.knee_offset = par->param;
@@ -462,6 +463,91 @@ const struct pl_tone_map_function pl_tone_map_st2094_10 = {
     .map = st2094_10,
 };
 
+static void st2094_10_v2(float *lut, const struct pl_tone_map_params *params)
+{
+    float x1 = params->input_min;
+    float x3 = params->input_max;
+    float x2 = params->input_avg;
+
+    // If mid-tone (avg) isn't given, default to a typical skin-tone PQ value                                  
+    if (x2 <= 0.0f || isnan(x2))                                                                                              
+        x2 = 0.36f;                                                                                                           
+                                                                                                                            
+    const float target_min_pq = params->output_min;                        
+    const float target_max_pq = params->output_max;                        
+                                                                                                                            
+    // Find dynamic range of target display                                                                           
+    const float tdr = target_max_pq - target_min_pq;                                                                          
+                                                                                                                            
+    // Calculate mid, head, and tail locations                                                                        
+    const float mid_loc = (x2 - target_min_pq) / tdr;                                                                         
+    const float headroom = (x3 - x2) / tdr;                                                                                   
+    const float tailroom = (x2 - x1) / tdr;                                                                                   
+                                                                                                                            
+    // Set amount of contrast preservation                                               
+    const float preservation_head = 0.5f;                                                                                     
+    const float preservation_tail = 0.5f;                                                                                     
+                                                                                                                                                              
+    const float cutoff = 0.5f;                                                                                                
+    const float offset_head = fminf(fmaxf(0.0f, mid_loc - cutoff) * tdr,                                                      
+                                    fmaxf(0.0f, headroom * preservation_head + mid_loc - 1.0f) * tdr);                        
+    const float offset_tail = fminf(fmaxf(0.0f, cutoff - mid_loc) * tdr,                                                      
+                                    fmaxf(0.0f, tailroom * preservation_tail - mid_loc) * tdr);                               
+                                                                                                                            
+    // Set target Mid-tone (y2)                                                                                       
+    const float y2 = x2 - offset_head + offset_tail;                                                                          
+                                                                                                                            
+    // Adjust y1 and y3 based on y2                                                                                   
+    const float y3 = fminf(y2 + x3 - x2, target_max_pq);                                                                      
+    const float y1 = fmaxf(y2 - x2 + x1, target_min_pq);
+
+    const float max_min_slope = 3.0f * (y2 - y1) / (x2 - x1);                                                                 
+    const float max_max_slope = 3.0f * (y3 - y2) / (x3 - x2);      
+                                                                                                      
+    const float tail_ratio = (y2 - y1) / (x2 - x1);                                                                           
+    const float slope_min = fminf(max_min_slope, tail_ratio * tail_ratio);                                                    
+                                                                                                                                
+    const float head_ratio = (y3 - y2) / (x3 - x2);                                                                           
+    const float slope_max = fminf(max_max_slope, fminf(1.0f, head_ratio * head_ratio * head_ratio * head_ratio));             
+                                                                                                                                
+    const float contrast_factor = 1.0f;                                         
+    const float slope_mid = fminf(max_min_slope, fminf(max_max_slope, contrast_factor * (1.0f - x2 + y2)));                   
+                                                                                                                                                                                         
+    FOREACH_LUT(lut, x) {                                                                                                     
+        if (x <= x1) {                                                                                                                                                                                               
+            x = y1 + (x - x1) * slope_min;                                                                                    
+        }                                                                                                                     
+        else if (x <= x2) {                                                                                                                                                                                     
+            float t = (x - x1) / (x2 - x1);                                                                                   
+            float t2 = t * t;                                                                                                 
+            float t3 = t2 * t;                                                                                                
+            x = (2.0f * t3 - 3.0f * t2 + 1.0f) * y1 +                                                                         
+                (t3 - 2.0f * t2 + t) * (x2 - x1) * slope_min + 
+                (-2.0f * t3 + 3.0f * t2) * y2 + 
+                (t3 - t2) * (x2 - x1) * slope_mid;
+        } 
+        else if (x < x3) {
+            float t = (x - x2) / (x3 - x2);
+            float t2 = t * t;
+            float t3 = t2 * t;
+            x = (2.0f * t3 - 3.0f * t2 + 1.0f) * y2 + 
+                (t3 - 2.0f * t2 + t) * (x3 - x2) * slope_mid + 
+                (-2.0f * t3 + 3.0f * t2) * y3 + 
+                (t3 - t2) * (x3 - x2) * slope_max;
+        } 
+        else {
+            x = y3 + (x - x3) * slope_max;
+        }
+    }
+}
+
+const struct pl_tone_map_function pl_tone_map_st2094_10_v2 = {
+    .name = "st2094-10-v2",
+    .description = "SMPTE ST 2094-10 Annex B.2 version 2",
+    .scaling = PL_HDR_PQ,
+    .map = st2094_10_v2,
+};
+
 static void bt2390(float *lut, const struct pl_tone_map_params *params)
 {
     const float minLum = rescale_in(params->output_min, params);
@@ -755,6 +841,7 @@ const struct pl_tone_map_function * const pl_tone_map_functions[] = {
     &pl_tone_map_clip,
     &pl_tone_map_st2094_40,
     &pl_tone_map_st2094_10,
+    &pl_tone_map_st2094_10_v2,
     &pl_tone_map_bt2390,
     &pl_tone_map_bt2446a,
     &pl_tone_map_spline,
