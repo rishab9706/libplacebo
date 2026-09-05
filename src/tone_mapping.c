@@ -25,17 +25,21 @@
 static void fix_constants(struct pl_tone_map_constants *c)
 {
     const float eps = 1e-6f;
-    c->knee_adaptation   = fclampf(c->knee_adaptation, 0.0f, 1.0f);
-    c->knee_minimum      = fclampf(c->knee_minimum, eps, 0.5f - eps);
-    c->knee_maximum      = fclampf(c->knee_maximum, 0.5f + eps, 1.0f - eps);
-    c->knee_default      = fclampf(c->knee_default, c->knee_minimum, c->knee_maximum);
-    c->knee_offset       = fclampf(c->knee_offset, 0.5f, 2.0f);
-    c->slope_tuning      = fclampf(c->slope_tuning, 0.0f, 10.0f);
-    c->slope_offset      = fclampf(c->slope_offset, 0.0f, 1.0f);
-    c->spline_contrast   = fclampf(c->spline_contrast, 0.0f, 1.5f);
-    c->reinhard_contrast = fclampf(c->reinhard_contrast, eps, 1.0f - eps);
-    c->linear_knee       = fclampf(c->linear_knee, eps, 1.0f - eps);
-    c->exposure          = fclampf(c->exposure, eps, 10.0f);
+    c->knee_adaptation      = fclampf(c->knee_adaptation, 0.0f, 1.0f);
+    c->knee_minimum         = fclampf(c->knee_minimum, eps, 0.5f - eps);
+    c->knee_maximum         = fclampf(c->knee_maximum, 0.5f + eps, 1.0f - eps);
+    c->knee_default         = fclampf(c->knee_default, c->knee_minimum, c->knee_maximum);
+    c->knee_offset          = fclampf(c->knee_offset, 0.5f, 2.0f);
+    c->slope_tuning         = fclampf(c->slope_tuning, 0.0f, 10.0f);
+    c->slope_offset         = fclampf(c->slope_offset, 0.0f, 1.0f);
+    c->spline_contrast      = fclampf(c->spline_contrast, 0.0f, 1.5f);
+    c->reinhard_contrast    = fclampf(c->reinhard_contrast, eps, 1.0f - eps);
+    c->linear_knee          = fclampf(c->linear_knee, eps, 1.0f - eps);
+    c->exposure             = fclampf(c->exposure, eps, 10.0f);
+    c->shadow_contrast      = fclampf(c->shadow_contrast, eps, 1.0f - eps);
+    c->highlight_contrast   = fclampf(c->highlight_contrast, eps, 1.0f - eps);
+    c->contrast_factor      = fclampf(c->contrast_factor, 0.5f + eps, 2.0f - eps);
+    c->cutoff               = fclampf(c->cutoff, eps, 1.0f - eps);
 }
 
 static inline bool constants_equal(const struct pl_tone_map_constants *a,
@@ -82,8 +86,7 @@ void pl_tone_map_params_infer(struct pl_tone_map_params *par)
 
     if (par->param) {
         // Backwards compatibility for older API
-        if (par->function == &pl_tone_map_st2094_40 || par->function == &pl_tone_map_st2094_10 ||
-            par->function == &pl_tone_map_st2094_10_v2)
+        if (par->function == &pl_tone_map_st2094_40 || par->function == &pl_tone_map_st2094_10)
             par->constants.knee_adaptation = par->param;
         if (par->function == &pl_tone_map_bt2390)
             par->constants.knee_offset = par->param;
@@ -485,10 +488,10 @@ static void st2094_10_v2(float *lut, const struct pl_tone_map_params *params)
     const float tailroom = (x2 - x1) / tdr;                                                                                   
                                                                                                                             
     // Set amount of contrast preservation                                               
-    const float preservation_head = 0.5f;                                                                                     
-    const float preservation_tail = 0.5f;                                                                                     
+    const float preservation_head = params->constants.highlight_contrast;                                                                                     
+    const float preservation_tail = params->constants.shadow_contrast;                                                                                     
                                                                                                                                                               
-    const float cutoff = 0.5f;                                                                                                
+    const float cutoff = params->constants.cutoff;                                                                                                
     const float offset_head = fminf(fmaxf(0.0f, mid_loc - cutoff) * tdr,                                                      
                                     fmaxf(0.0f, headroom * preservation_head + mid_loc - 1.0f) * tdr);                        
     const float offset_tail = fminf(fmaxf(0.0f, cutoff - mid_loc) * tdr,                                                      
@@ -510,7 +513,7 @@ static void st2094_10_v2(float *lut, const struct pl_tone_map_params *params)
     const float head_ratio = (y3 - y2) / (x3 - x2);                                                                           
     const float slope_max = fminf(max_max_slope, fminf(1.0f, head_ratio * head_ratio * head_ratio * head_ratio));             
                                                                                                                                 
-    const float contrast_factor = 1.0f;                                         
+    const float contrast_factor = params->constants.contrast_factor;                                         
     const float slope_mid = fminf(max_min_slope, fminf(max_max_slope, contrast_factor * (1.0f - x2 + y2)));                   
                                                                                                                                                                                          
     FOREACH_LUT(lut, x) {                                                                                                     

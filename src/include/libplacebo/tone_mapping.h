@@ -111,20 +111,30 @@ struct pl_tone_map_constants {
     // For linear methods (linear, linearlight), this controls the linear
     // exposure/gain applied to the image. (0,10]
     float exposure;
+
+    // For the ST2094-10-V2 function
+    float highlight_contrast;
+    float contrast_factor;
+    float shadow_contrast;
+    float cutoff;
 };
 
 #define PL_TONE_MAP_CONSTANTS  \
-    .knee_adaptation   = 0.4f, \
-    .knee_minimum      = 0.1f, \
-    .knee_maximum      = 0.8f, \
-    .knee_default      = 0.4f, \
-    .knee_offset       = 1.0f, \
-    .slope_tuning      = 1.5f, \
-    .slope_offset      = 0.2f, \
-    .spline_contrast   = 0.5f, \
-    .reinhard_contrast = 0.5f, \
-    .linear_knee       = 0.3f, \
-    .exposure          = 1.0f,
+    .knee_adaptation        = 0.4f, \
+    .knee_minimum           = 0.1f, \
+    .knee_maximum           = 0.8f, \
+    .knee_default           = 0.4f, \
+    .knee_offset            = 1.0f, \
+    .slope_tuning           = 1.5f, \
+    .slope_offset           = 0.2f, \
+    .spline_contrast        = 0.5f, \
+    .reinhard_contrast      = 0.5f, \
+    .linear_knee            = 0.3f, \
+    .exposure               = 1.0f, \
+    .shadow_contrast        = 0.5f, \
+    .contrast_factor        = 1.0f, \
+    .highlight_contrast     = 0.5f, \
+    .cutoff                 = 0.5,
 
 struct pl_tone_map_params {
     // If `function` is NULL, defaults to `pl_tone_map_clip`.

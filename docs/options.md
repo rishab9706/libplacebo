@@ -552,6 +552,28 @@ directly sets the corresponding knee point. Defaults to `0.3`.
 For linear methods (`linear`, `linearlight`), this controls the linear
 exposure/gain applied to the image. Defaults to `1.0`.
 
+#### `contrast_factor=<0.5..2.0>`
+
+Overall mid-tone contrast strength. Higher values punch up contrast around the 
+average brightness of the image; lower values soften it. Defaults to `1.0`.
+
+#### `cutoff=<0.0..1.0>`
+
+Highlight vs. shadow priority balance. Values above 0.5 favor preserving highlight 
+detail over shadow detail; values below 0.5 do the reverse. Defaults to `0.5`.
+
+#### `hightlight_contrast=<0.0..1.0>`
+
+How much of the source image's highlight contrast is protected from compression.
+Higher values keep bright detail more distinct; lower values let highlights compress 
+more freely. Defaults to `0.5`.
+
+#### `shadow_contrast=<0.0..1.0>`
+
+How much of the source image's shadow contrast is protected from compression. 
+Higher values keep dark detail more distinct; lower values let shadows compress 
+more freely. Defaults to `0.5`.
+
 ### `inverse_tone_mapping=<yes|no>`
 
 If enabled, and supported by the given tone mapping function, will perform
