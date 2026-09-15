@@ -12,7 +12,8 @@ project('libplacebo', ['c', 'cpp'],
     7,
     # API version
     {
-      '377': 'add pl_color_repr_limits',
+      '378': 'add pl_color_repr_limits',
+      '377': 'add pl_hdr_letterbox_offsets',
       '376': 'update pl_tone_map_constants for st2094-10-v2',
       '375': 'add pl_tone_map_st2094_10_v2',
       '374': 'add pl_color_map_params.dovi_trims',

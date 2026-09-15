@@ -88,6 +88,14 @@ void pl_hdr_metadata_from_dovi_rpu(struct pl_hdr_metadata *out,
                 }
             }
 
+            if (vdr_dm_data->dm_data.level5) {
+                const DoviExtMetadataBlockLevel5 *l5 = vdr_dm_data->dm_data.level5;
+                out->active_area_offset.bottom_offset = l5->active_area_bottom_offset;
+                out->active_area_offset.top_offset = l5->active_area_top_offset;
+                out->active_area_offset.left_offset = l5->active_area_left_offset;
+                out->active_area_offset.right_offset = l5->active_area_right_offset;
+            }
+
             dovi_rpu_free_vdr_dm_data(vdr_dm_data);
         }
 

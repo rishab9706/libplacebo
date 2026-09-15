@@ -442,6 +442,14 @@ struct pl_hdr_dovi_trims {
     float trim_chroma_weight;
 };
 
+// Dolby Vision L5 offsets
+struct pl_hdr_letterbox_offsets {
+    uint16_t top_offset;
+    uint16_t bottom_offset;
+    uint16_t left_offset;
+    uint16_t right_offset;
+};
+
 // Represents raw HDR metadata as defined by SMPTE 2086 / CTA 861.3, which is
 // often attached to HDR sources and can be forwarded to HDR-capable displays,
 // or used to guide the libplacebo built-in tone mapping. Values left as 0
@@ -478,6 +486,7 @@ struct pl_hdr_metadata {
     float dovi_min_pq;              // Dolby Vision minimum PQ luminance (in PQ, 0-1)
     struct pl_hdr_dovi_trims dovi_trims[8];
     int num_dovi_trims;
+    struct pl_hdr_letterbox_offsets active_area_offset; // Dolby vision level 5 active area offsets
 };
 
 PL_API extern const struct pl_hdr_metadata pl_hdr_metadata_empty; // equal to {0}
