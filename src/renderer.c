@@ -3297,6 +3297,18 @@ static void fix_refs_and_rects(struct pass_state *pass)
     pl_rect2df_normalize(src);
     pl_rect2df_normalize(dst);
 
+    struct pl_hdr_letterbox_offsets *l5 = &image->color.hdr.active_area_offset;                                                   
+    if (l5->left_offset || l5->right_offset || l5->top_offset || l5->bottom_offset) {                                                                                                                            
+        // Shrink the source crop inwards                                                                                      
+        src->x0 += (float)l5->left_offset;                                                                                        
+        src->y0 += (float)l5->top_offset;                                                                                         
+        src->x1 -= (float)l5->right_offset;                                                                                       
+        src->y1 -= (float)l5->bottom_offset; 
+        
+        pl_rect2df_aspect_copy(dst, src, 0.0f);
+    }
+
+
     // Round the output rect and clip it to the framebuffer dimensions
     float rx0 = roundf(PL_CLAMP(dst->x0, 0.0, dst_w)),
           ry0 = roundf(PL_CLAMP(dst->y0, 0.0, dst_h)),
