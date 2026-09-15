@@ -2093,10 +2093,15 @@ void pl_shader_color_map_ex(pl_shader sh, const struct pl_color_map_params *para
             chroma_weight = t1->trim_chroma_weight;
         }
 
-        GLSL("ipt.x = pow(ipt.x * "$" + "$", "$");  \n",
+        GLSL("ipt.x = ipt.x * "$" + "$";                    \n"
+             "ipt.x = clamp((ipt.x - "$") / "$", 0.0, 1.0); \n"
+             "ipt.x = pow(ipt.x, "$");                      \n"
+             "ipt.x = ipt.x * "$" + "$";                    \n",
              SH_FLOAT_DYN(slope),
              SH_FLOAT_DYN(offset),
-             SH_FLOAT_DYN(power));
+             SH_FLOAT(tone.output_min), SH_FLOAT(tone.output_max - tone.output_min),
+             SH_FLOAT_DYN(power),
+             SH_FLOAT(tone.output_max - tone.output_min), SH_FLOAT(tone.output_min));
 
         sh_describe(sh, "Dolby Vision Trims");
     }
