@@ -12,6 +12,7 @@ project('libplacebo', ['c', 'cpp'],
     7,
     # API version
     {
+      '381': 'add pl_color_repr_decode_ex, pl_color_decode_args.primaries and pl_shader_encode_color_ex',
       '380': 'change pl_source_frame and pl_frame_mix members from float to double',
       '379': 'add pl_color_map_params.saturation_map',
       '378': 'add pl_color_repr_limits',
