@@ -606,6 +606,11 @@ creating too many obvious artefacts.
 HDR contrast recovery lowpass kernel size. Increasing or decreasing this will
 affect the visual appearance substantially. Defaults to `3.5`.
 
+### `saturation_map=<yes|no>`
+
+Darkens highly saturated pixels slightly to regain texture and details.
+Defaults to `yes`.
+
 ### Debug options
 
 Miscellaneous debugging and display options related to tone/gamut mapping.
