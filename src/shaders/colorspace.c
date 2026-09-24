@@ -2267,9 +2267,13 @@ void pl_shader_color_map_ex(pl_shader sh, const struct pl_color_map_params *para
         
         bool need_sat_map = tone.input_max > tone.output_max;
         if (need_sat_map) {
-            float input_max = pl_hdr_rescale(PL_HDR_PQ, PL_HDR_NITS, tone.input_max);
+            float scene_max = fmaxf(src.hdr.scene_max[0], 
+                              fmaxf(src.hdr.scene_max[1], src.hdr.scene_max[2]));
+            if (!(scene_max > 0.0f))
+                scene_max = pl_hdr_rescale(PL_HDR_PQ, PL_HDR_NITS, tone.input_max);
             float output_max = pl_hdr_rescale(PL_HDR_PQ, PL_HDR_NITS, tone.output_max);
-            float s_red[3] = {input_max, 0.0f, 0.0f};
+            
+            float s_red[3] = {scene_max, 0.0f, 0.0f};
             float t_red[3] = {output_max, 0.0f, 0.0f};
             pl_matrix3x3 rgb2lms_src = pl_ipt_rgb2lms(&src.hdr.prim);
             pl_matrix3x3_apply(&rgb2lms_src, s_red);
