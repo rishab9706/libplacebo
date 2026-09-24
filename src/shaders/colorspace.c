@@ -1981,6 +1981,11 @@ void pl_shader_color_map_ex(pl_shader sh, const struct pl_color_map_params *para
                       pl_hdr_rescale(tone.output_scaling, PL_HDR_NITS, tone.output_max) < tone.hdr.max_luma &&
                       params->dovi_trims &&
                       tone.function == &pl_tone_map_st2094_10;
+    float scene_max = fmaxf(src.hdr.scene_max[0], 
+                      fmaxf(src.hdr.scene_max[1], src.hdr.scene_max[2]));
+    if (!(scene_max > 0.0f))
+        scene_max = pl_hdr_rescale(PL_HDR_PQ, PL_HDR_NITS, tone.input_max);
+    bool need_sat_map = scene_max > pl_hdr_rescale(PL_HDR_PQ, PL_HDR_NITS, tone.output_max);
 
     if (!args->prelinearized)
         pl_shader_linearize(sh, &src);
@@ -2000,7 +2005,7 @@ void pl_shader_color_map_ex(pl_shader sh, const struct pl_color_map_params *para
     }
 
     // Fast path: simply convert between primaries (if needed)
-    if (!need_tone_map && !need_gamut_map && !need_trims) {
+    if (!need_tone_map && !need_gamut_map && !need_trims && !need_sat_map) {
         if (src.primaries != dst.primaries) {
             sh_describe(sh, "colorspace conversion");
             pl_matrix3x3_mul(&lms2rgb, &rgb2lms);
@@ -2023,7 +2028,8 @@ void pl_shader_color_map_ex(pl_shader sh, const struct pl_color_map_params *para
          "        / (vec3(1.0) + %f * lmspq);       \n"
          "lmspq = pow(lmspq, vec3(%f));             \n"
          "vec3 ipt = "$" * lmspq;                   \n"
-         "float i_orig = ipt.x;                     \n",
+         "float i_orig = ipt.x;                     \n"
+         "float S = length(ipt.yz);                 \n",
          SH_MAT3(rgb2lms),
          PL_COLOR_SDR_WHITE / 10000,
          PQ_M1, PQ_C1, PQ_C2, PQ_C3, PQ_M2,
@@ -2241,8 +2247,7 @@ void pl_shader_color_map_ex(pl_shader sh, const struct pl_color_map_params *para
     // also desaturate when reducing brightness greatly to account for the
     // reduction in gamut volume.
     if (need_tone_map || need_trims) {
-        GLSL("float S = length(ipt.yz);                             \n"
-             "vec2 hull = vec2(ipt.x - 1.0, i_orig - 1.0);          \n"
+        GLSL("vec2 hull = vec2(ipt.x - 1.0, i_orig - 1.0);          \n"
              "hull = hull * hull * hull + vec2(1.0);                \n"
              "float saturation_scale = hull.x / max(1e-6, hull.y);  \n"
              "ipt.yz *= saturation_scale;                           \n");
@@ -2264,47 +2269,44 @@ void pl_shader_color_map_ex(pl_shader sh, const struct pl_color_map_params *para
              "vec2 c4 = 1.0 - (d3 * d3);                                          \n"
              "float mesopic_scale = clamp(c4.x / max(1e-6, c4.y), 0.0, 1.0);      \n"
              "ipt.yz *= mesopic_scale;                                            \n");
+    }
+
+    if (need_sat_map) {
+        sh_describe(sh, "Saturation map");
+
+        float output_max = pl_hdr_rescale(PL_HDR_PQ, PL_HDR_NITS, tone.output_max);
         
-        bool need_sat_map = tone.input_max > tone.output_max;
-        if (need_sat_map) {
-            float scene_max = fmaxf(src.hdr.scene_max[0], 
-                              fmaxf(src.hdr.scene_max[1], src.hdr.scene_max[2]));
-            if (!(scene_max > 0.0f))
-                scene_max = pl_hdr_rescale(PL_HDR_PQ, PL_HDR_NITS, tone.input_max);
-            float output_max = pl_hdr_rescale(PL_HDR_PQ, PL_HDR_NITS, tone.output_max);
-            
-            float s_red[3] = {scene_max, 0.0f, 0.0f};
-            float t_red[3] = {output_max, 0.0f, 0.0f};
-            pl_matrix3x3 rgb2lms_src = pl_ipt_rgb2lms(&src.hdr.prim);
-            pl_matrix3x3_apply(&rgb2lms_src, s_red);
-            pl_matrix3x3_apply(&rgb2lms_src, t_red);
-            for (int i = 0; i < 3; i++) {
-                s_red[i] = pl_hdr_rescale(PL_HDR_NITS, PL_HDR_PQ, s_red[i]);
-                t_red[i] = pl_hdr_rescale(PL_HDR_NITS, PL_HDR_PQ, t_red[i]);
-            }
-            pl_matrix3x3_apply(&pl_ipt_lms2ipt, s_red);
-            pl_matrix3x3_apply(&pl_ipt_lms2ipt, t_red);
-
-            // Find the saturation of the red primary
-            float s_red_s = sqrtf(s_red[1] * s_red[1] + s_red[2] * s_red[2]);
-            float t_red_s = sqrtf(t_red[1] * t_red[1] + t_red[2] * t_red[2]);
-
-            // Map the source red pixel to the target
-            float s_red_mapped = pl_tone_map_sample(s_red[0], &tone);
-            float red_sat_scale = (powf(s_red_mapped - 1, 3.0f) + 1.0f) /
-                                  fmaxf(powf(s_red[0] - 1, 3.0f) + 1.0f, 1e-6f);
-
-            float tone_c1 = (t_red[0] / s_red_mapped - 1.0f);
-            float chroma_c1 = (t_red_s / (s_red_s * red_sat_scale) - 1.0f);
-            tone_c1 = fminf(0.0f, tone_c1);
-            chroma_c1 = fminf(0.0f, chroma_c1);
-
-            GLSL("float sat_map_ratio = min((S * S * S) / "$", 1.0);    \n"
-                 "ipt.x *= 1.0f + sat_map_ratio * "$";                  \n"
-                 "ipt.yz *= 1.0f + sat_map_ratio * "$";                 \n",
-                 SH_FLOAT_DYN(s_red_s * s_red_s * s_red_s),
-                 SH_FLOAT_DYN(tone_c1), SH_FLOAT_DYN(chroma_c1));
+        float s_red[3] = {scene_max, 0.0f, 0.0f};
+        float t_red[3] = {output_max, 0.0f, 0.0f};
+        pl_matrix3x3 rgb2lms_src = pl_ipt_rgb2lms(&src.hdr.prim);
+        pl_matrix3x3_apply(&rgb2lms_src, s_red);
+        pl_matrix3x3_apply(&rgb2lms_src, t_red);
+        for (int i = 0; i < 3; i++) {
+            s_red[i] = pl_hdr_rescale(PL_HDR_NITS, PL_HDR_PQ, s_red[i]);
+            t_red[i] = pl_hdr_rescale(PL_HDR_NITS, PL_HDR_PQ, t_red[i]);
         }
+        pl_matrix3x3_apply(&pl_ipt_lms2ipt, s_red);
+        pl_matrix3x3_apply(&pl_ipt_lms2ipt, t_red);
+
+        // Find the saturation of the red primary
+        float s_red_s = sqrtf(s_red[1] * s_red[1] + s_red[2] * s_red[2]);
+        float t_red_s = sqrtf(t_red[1] * t_red[1] + t_red[2] * t_red[2]);
+
+        // Map the source red pixel to the target
+        float s_red_mapped = pl_tone_map_sample(s_red[0], &tone);
+        float red_sat_scale = (powf(s_red_mapped - 1, 3.0f) + 1.0f) /
+                              fmaxf(powf(s_red[0] - 1, 3.0f) + 1.0f, 1e-6f);
+
+        float tone_c1 = (t_red[0] / s_red_mapped - 1.0f);
+        float chroma_c1 = (t_red_s / (s_red_s * red_sat_scale) - 1.0f);
+        tone_c1 = fminf(0.0f, tone_c1);
+        chroma_c1 = fminf(0.0f, chroma_c1);
+
+        GLSL("float sat_map_ratio = min((S * S * S) / "$", 1.0);    \n"
+             "ipt.x *= 1.0f + sat_map_ratio * "$";                  \n"
+             "ipt.yz *= 1.0f + sat_map_ratio * "$";                 \n",
+             SH_FLOAT_DYN(s_red_s * s_red_s * s_red_s),
+             SH_FLOAT_DYN(tone_c1), SH_FLOAT_DYN(chroma_c1));
     }
 
     if (need_trims) {
