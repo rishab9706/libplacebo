@@ -1985,7 +1985,8 @@ void pl_shader_color_map_ex(pl_shader sh, const struct pl_color_map_params *para
                       fmaxf(src.hdr.scene_max[1], src.hdr.scene_max[2]));
     if (!(scene_max > 0.0f))
         scene_max = pl_hdr_rescale(PL_HDR_PQ, PL_HDR_NITS, tone.input_max);
-    bool need_sat_map = scene_max > pl_hdr_rescale(PL_HDR_PQ, PL_HDR_NITS, tone.output_max);
+    bool need_sat_map = scene_max > pl_hdr_rescale(PL_HDR_PQ, PL_HDR_NITS, tone.output_max) &&
+                        params->saturation_map;
 
     if (!args->prelinearized)
         pl_shader_linearize(sh, &src);

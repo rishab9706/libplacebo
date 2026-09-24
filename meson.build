@@ -12,6 +12,7 @@ project('libplacebo', ['c', 'cpp'],
     7,
     # API version
     {
+      '379': 'add pl_color_map_params.saturation_map',
       '378': 'add pl_color_repr_limits',
       '377': 'add pl_hdr_letterbox_offsets',
       '376': 'update pl_tone_map_constants for st2094-10-v2',

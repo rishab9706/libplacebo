@@ -326,6 +326,7 @@ struct pl_color_map_params {
 
     //Dolby Vision trims
     bool dovi_trims;
+    bool saturation_map;
 
     // --- Deprecated fields
     PL_DEPRECATED_IN(v6.269) enum pl_tone_map_mode tone_mapping_mode; // removed
@@ -346,7 +347,8 @@ struct pl_color_map_params {
     .lut_size               = 256,                              \
     .visualize_rect         = {0, 0, 1, 1},                     \
     .contrast_smoothness    = 3.5f,                             \
-    .dovi_trims             = true,
+    .dovi_trims             = true,                             \
+    .saturation_map         = true,
 
 #define PL_COLOR_MAP_HQ_DEFAULTS                                \
     PL_COLOR_MAP_DEFAULTS                                       \
