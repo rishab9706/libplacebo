@@ -2295,6 +2295,7 @@ void pl_shader_color_map_ex(pl_shader sh, const struct pl_color_map_params *para
 
         // Map the source red pixel to the target
         float s_red_mapped = pl_tone_map_sample(s_red[0], &tone);
+        s_red_mapped = powf(s_red_mapped * slope + offset, power);
         float red_sat_scale = (powf(s_red_mapped - 1, 3.0f) + 1.0f) /
                               fmaxf(powf(s_red[0] - 1, 3.0f) + 1.0f, 1e-6f);
         red_sat_scale *= 1.0f + saturation_gain;
