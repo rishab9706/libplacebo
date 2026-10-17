@@ -12,6 +12,7 @@ project('libplacebo', ['c', 'cpp'],
     7,
     # API version
     {
+      '392': 'change the units of pl_dovi_metadata.comp.pivots and pl_dovi_metadata.nlq, add pl_dovi_nlq_data.hdr_in_max',
       '391': 'add pl_queue_set_status() and pl_queue_get_status()',
       '390': 'add pl_compositor.repr/color/chroma_location and pl_input.chroma_location',
       '389': 'add pl_scene, pl_scene_update(), pl_scene_render() and pl_scene_create_json',
