@@ -12,6 +12,7 @@ project('libplacebo', ['c', 'cpp'],
     7,
     # API version
     {
+      '385': 'add <libplacebo/compositor.h>',
       '384': 'add pl_vec2d(f), pl_vec3d(f), and various pl_*_v() helpers',
       '383': 'add pl_frame_size()',
       '382': 'VK_KHR_internally_synchronized_queues is used only on request',
