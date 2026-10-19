@@ -12,6 +12,7 @@ project('libplacebo', ['c', 'cpp'],
     7,
     # API version
     {
+      '384': 'add pl_vec2d(f), pl_vec3d(f), and various pl_*_v() helpers',
       '383': 'add pl_frame_size()',
       '382': 'VK_KHR_internally_synchronized_queues is used only on request',
       '381': 'add pl_color_repr_decode_ex, pl_color_decode_args.primaries and pl_shader_encode_color_ex',
