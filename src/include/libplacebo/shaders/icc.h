@@ -45,6 +45,9 @@ struct pl_icc_params {
     // sufficed.
     int size_r, size_g, size_b;
 
+    // Size of the generated VCGT 1D LUT, in entries. Defaults to 256.
+    int vcgt_size;
+
     // This field can be used to override the detected brightness level of the
     // ICC profile. If you set this to the special value 0 (or a negative
     // number), libplacebo will attempt reading the brightness value from the
@@ -79,7 +82,8 @@ struct pl_icc_params {
 #define PL_ICC_DEFAULTS                         \
     .intent = PL_INTENT_RELATIVE_COLORIMETRIC,  \
     .max_luma = PL_COLOR_SDR_WHITE,             \
-    .use_vcgt = false,
+    .use_vcgt = false,                          \
+    .vcgt_size = 256,
 
 #define pl_icc_params(...) (&(struct pl_icc_params) { PL_ICC_DEFAULTS __VA_ARGS__ })
 PL_API extern const struct pl_icc_params pl_icc_default_params;

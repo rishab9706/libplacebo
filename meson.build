@@ -12,6 +12,7 @@ project('libplacebo', ['c', 'cpp'],
     7,
     # API version
     {
+      '398': 'add pl_icc_params.vcgt_size',
       '397': 'add pl_icc_vcgt and pl_icc_params.use_vcgt',
       '396': 'add pl_render_stage enum value PL_RENDER_STAGE_MOTION',
       '395': 'add pl_frame_interp_input and pl_shader_frame_interp',
