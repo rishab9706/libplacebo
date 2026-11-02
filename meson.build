@@ -12,6 +12,7 @@ project('libplacebo', ['c', 'cpp'],
     7,
     # API version
     {
+      '406': 'add pl_icc_params.vcgt_size',
       '405': 'add pl_icc_vcgt and pl_icc_params.use_vcgt',
       '404': 'add pl_opengl_swapchain_params.recreate_surface',
       '403': 'remove pl_motion_global_buf_vars and its accessors',
