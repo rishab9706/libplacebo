@@ -12,6 +12,7 @@ project('libplacebo', ['c', 'cpp'],
     7,
     # API version
     {
+      '403': 'add pl_icc_params.vcgt_size',
       '402': 'add pl_icc_vcgt and pl_icc_params.use_vcgt',
       '401': 'add pl_frame_interp_algo PL_FRAME_INTERP_QUALITY',
       '400': 'add pl_motion_estimate_input.estimate_quality and pl_motion_get_quality',

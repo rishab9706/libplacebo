@@ -39,6 +39,7 @@ struct icc_priv {
     cmsCIEXYZ *white, black;
     float gamma_stddev;
     uint64_t lut_sig;
+    uint64_t vcgt_sig;
 };
 
 static void error_callback(cmsContext cms, cmsUInt32Number code,
@@ -491,6 +492,11 @@ static bool icc_init(struct pl_icc_object_t *icc)
     pl_hash_merge(&p->lut_sig, v.u);
     // min luma depends only on the max luma and profile
 
+    // Hash all parameters affecting the generated VCGT lut
+    p->vcgt_sig = UINT64_C(0xfa886c322ad29caf);
+    pl_hash_merge(&p->vcgt_sig, icc->signature);
+    pl_hash_merge(&p->vcgt_sig, params->vcgt_size);
+
     // Backwards compatibility with old caching API
     if ((params->cache_save || params->cache_load) && !params->cache) {
         p->cache = pl_cache_create(pl_cache_params(
@@ -625,6 +631,7 @@ bool pl_icc_update(pl_log log, pl_icc_object *out_icc,
                   params->max_luma   == icc->params.max_luma  &&
                   params->force_bpc  == icc->params.force_bpc &&
                   params->use_vcgt   == icc->params.use_vcgt  &&
+                  params->vcgt_size  == icc->params.vcgt_size &&
                   size_r             == icc->params.size_r    &&
                   size_g             == icc->params.size_g    &&
                   size_b             == icc->params.size_b;
@@ -707,10 +714,11 @@ static void fill_vcgt_lut(void *datap, const struct sh_lut_params *params)
 {
     pl_icc_object icc = params->priv;
     struct icc_priv *p = PL_PRIV(icc);
+    int vcgt_size = params->width;
 
     uint16_t *data = (uint16_t *)datap;
-    for (int i = 0; i < 256; i++) {
-        uint16_t value = i * 65535 / 255;
+    for (int i = 0; i < vcgt_size; i++) {
+        uint16_t value = i * 65535 / (vcgt_size - 1);
         data[i * 4 + 0] = cmsEvalToneCurve16(p->vcgt[0], value);
         data[i * 4 + 1] = cmsEvalToneCurve16(p->vcgt[1], value);
         data[i * 4 + 2] = cmsEvalToneCurve16(p->vcgt[2], value);
@@ -857,9 +865,9 @@ void pl_icc_vcgt(pl_shader sh, pl_icc_object icc, pl_shader_obj *lut_obj) {
         .var_type   = PL_VAR_FLOAT,
         .method     = SH_LUT_LINEAR,
         .fmt        = fmt,
-        .width      = 256,
+        .width      = icc->params.vcgt_size,
         .comps      = 4,
-        .signature  = p->lut_sig,
+        .signature  = p->vcgt_sig,
         .fill       = fill_vcgt_lut,
         .priv       = (void *) icc,
     ));
