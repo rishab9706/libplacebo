@@ -1186,6 +1186,7 @@ const struct pl_opt_t pl_option_list[] = {
     OPT_INT("icc_size_b", "ICC 3DLUT size G", icc_params.size_b, .max = 256, .deprecated = true),
     OPT_FLOAT("icc_max_luma", "ICC profile luma override", icc_params.max_luma, .max = 10000, .deprecated = true),
     OPT_BOOL("icc_force_bpc", "Force ICC black point compensation", icc_params.force_bpc, .deprecated = true),
+    OPT_INT("icc_vcgt_size", "ICC VCGT size", icc_params.vcgt_size, .max = 1024),
 
     // Cone distortion
     OPT_ENABLE_PARAMS("cone", "Enable cone distortion", cone_params),

@@ -70,7 +70,7 @@ struct pl_renderer_t {
     pl_shader_obj dither_state;
     pl_shader_obj grain_state[4];
     pl_shader_obj lut_state[3];
-    pl_shader_obj icc_state[2];
+    pl_shader_obj icc_state[3];
     PL_ARRAY(pl_tex) fbos[PL_RENDER_STAGE_COUNT];
     struct sampler sampler_main;
     struct sampler sampler_contrast;
@@ -104,7 +104,8 @@ enum {
 enum {
     // Index into `icc_state`
     ICC_IMAGE,
-    ICC_TARGET
+    ICC_TARGET,
+    ICC_VCGT,
 };
 
 pl_renderer pl_renderer_create(pl_log log, pl_gpu gpu)
@@ -1036,8 +1037,11 @@ static void draw_overlays(struct pass_state *pass, pl_tex fbo,
         } else {
             pl_shader_color_map_ex(sh, &osd_params, pl_color_map_args(ol.color, color));
         }
-        if (target->icc)
+        if (target->icc) {
             pl_icc_encode(sh, target->icc, &rr->icc_state[ICC_TARGET]);
+            if (target->icc->params.use_vcgt)
+                pl_icc_vcgt(sh, target->icc, &rr->icc_state[ICC_VCGT]);
+        }
 
         bool premul = repr.alpha == PL_ALPHA_PREMULTIPLIED;
         pl_shader_encode_color_ex(sh, pl_color_encode_args(
@@ -2484,8 +2488,11 @@ static void pass_convert_colors(struct pass_state *pass)
             .feature_map   = feature_map,
         ));
 
-        if (target->icc)
+        if (target->icc) {
             pl_icc_encode(sh, target->icc, &rr->icc_state[ICC_TARGET]);
+            if (target->icc->params.use_vcgt)
+                pl_icc_vcgt(sh, target->icc, &rr->icc_state[ICC_VCGT]);
+        }
     }
 
     enum pl_lut_type lut_type = guess_frame_lut_type(target, true);

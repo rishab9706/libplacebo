@@ -45,6 +45,9 @@ struct pl_icc_params {
     // sufficed.
     int size_r, size_g, size_b;
 
+    // Size of the generated VCGT 1D LUT, in entries. Defaults to 256.
+    int vcgt_size;
+
     // This field can be used to override the detected brightness level of the
     // ICC profile. If you set this to the special value 0 (or a negative
     // number), libplacebo will attempt reading the brightness value from the
@@ -57,6 +60,12 @@ struct pl_icc_params {
     // do not round-trip. Should not be required on well-behaved profiles,
     // or when using PL_INTENT_PERCEPTUAL, but YMMV.
     bool force_bpc;
+
+    // Apply the ICC profile's VCGT (video card gamma table) via the
+    // rendering pipeline, for cases where libplacebo acts as the full
+    // display calibration output. Works around OS/driver VCGT handling
+    // that is quantized to lower bit depth or ignored entirely.
+    bool use_vcgt;
 
     // If provided, this pl_cache instance will be used, instead of the
     // GPU-internal cache, to cache the generated 3DLUTs. Note that these can
@@ -72,7 +81,9 @@ struct pl_icc_params {
 
 #define PL_ICC_DEFAULTS                         \
     .intent = PL_INTENT_RELATIVE_COLORIMETRIC,  \
-    .max_luma = PL_COLOR_SDR_WHITE,
+    .max_luma = PL_COLOR_SDR_WHITE,             \
+    .use_vcgt = false,                          \
+    .vcgt_size = 256,
 
 #define pl_icc_params(...) (&(struct pl_icc_params) { PL_ICC_DEFAULTS __VA_ARGS__ })
 PL_API extern const struct pl_icc_params pl_icc_default_params;
@@ -129,6 +140,20 @@ PL_API void pl_icc_decode(pl_shader sh, pl_icc_object profile, pl_shader_obj *lu
 // be set to a shader object that will store the GPU resources associated with
 // the generated LUT.
 PL_API void pl_icc_encode(pl_shader sh, pl_icc_object profile, pl_shader_obj *lut);
+
+/// Apply the ICC profile's video card gamma table (VCGT) as a per-channel
+// 1D LUT, compensating for the display's measured gamma response and whitepoint.
+//
+// This is intended for cases where libplacebo is treated as the full
+// display calibration output — i.e., libplacebo itself applies the VCGT
+// as part of the rendering pipeline, rather than relying on the OS or
+// graphics driver to do so. This works around cases where the OS/driver
+// applies the VCGT with reduced precision (e.g. 8-bit quantization) or
+// ignores it entirely.
+//
+// `lut` must be set to a shader object that will store the GPU resources
+// associated with the generated VCGT LUT.
+PL_API void pl_icc_vcgt(pl_shader sh, pl_icc_object profile, pl_shader_obj *lut);
 
 PL_API_END
 

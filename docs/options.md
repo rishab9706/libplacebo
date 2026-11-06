@@ -712,6 +712,14 @@ by perturbing the dithering matrix per frame. Defaults to `no`.
 !!! warning
     This can cause nasty aliasing artifacts on some LCD screens.
 
+## ICC profile
+
+Settings used for icc profiles.
+
+### `icc_vcgt_size=<0..1024>`
+
+VCGT lut size. Defaults to `256`.
+
 ## Cone distortion
 
 These options can be optionally used to modulate the signal in LMS space, in
