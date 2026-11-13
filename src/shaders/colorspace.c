@@ -2341,6 +2341,7 @@ void pl_shader_color_map_ex(pl_shader sh, const struct pl_color_map_params *para
         GLSL("vec2 hull = vec2(ipt.x - 1.0, i_orig - 1.0);          \n"
              "hull = hull * hull * hull + vec2(1.0);                \n"
              "float saturation_scale = hull.x / max(1e-6, hull.y);  \n"
+             "saturation_scale = min(saturation_scale, 1.0);        \n"
              "ipt.yz *= saturation_scale;                           \n");
 
         bool need_mesopic = tone.output_min > tone.input_min;
