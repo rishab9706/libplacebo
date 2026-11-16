@@ -12,6 +12,7 @@ project('libplacebo', ['c', 'cpp'],
     7,
     # API version
     {
+      '402': 'replace pl_motion_estimate_input.estimate_global and estimate_quality by features',
       '401': 'add pl_frame_interp_algo PL_FRAME_INTERP_QUALITY',
       '400': 'add pl_motion_estimate_input.estimate_quality and pl_motion_get_quality',
       '399': 'replace pl_motion_estimate_params.block_size by block_size_coarse and block_size_fine',
