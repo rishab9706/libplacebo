@@ -34,10 +34,12 @@ struct icc_priv {
     cmsContext cms;
     cmsHPROFILE profile;
     cmsHPROFILE approx; // approximation profile
+    cmsToneCurve **vcgt; // VCGT curves
     float a, b, scale; // approxmation tone curve parameters and scaling
     cmsCIEXYZ *white, black;
     float gamma_stddev;
     uint64_t lut_sig;
+    uint64_t vcgt_sig;
 };
 
 static void error_callback(cmsContext cms, cmsUInt32Number code,
@@ -412,12 +414,30 @@ static void infer_clut_size(struct pl_icc_object_t *icc)
     }
 }
 
+static bool use_vcgt(pl_icc_object icc) 
+{
+    struct icc_priv *p = PL_PRIV(icc);
+    if (!p->vcgt || !p->vcgt[0] || !p->vcgt[1] || !p->vcgt[2])
+        return false;
+
+    if (cmsIsToneCurveLinear(p->vcgt[0]) &&
+        cmsIsToneCurveLinear(p->vcgt[1]) &&
+        cmsIsToneCurveLinear(p->vcgt[2]))
+    {
+        return false;
+    }
+
+    return true;
+}
+
 static bool icc_init(struct pl_icc_object_t *icc)
 {
     struct icc_priv *p = PL_PRIV(icc);
     struct pl_icc_params *params = &icc->params;
     if (params->intent < 0 || params->intent > PL_INTENT_ABSOLUTE_COLORIMETRIC)
         params->intent = cmsGetHeaderRenderingIntent(p->profile);
+
+    p->vcgt = cmsReadTag(p->profile, cmsSigVcgtTag);
 
     if (!detect_contrast(icc, params))
         return false;
@@ -471,6 +491,11 @@ static bool icc_init(struct pl_icc_object_t *icc)
     union { double d; uint64_t u; } v = { .d = icc->csp.hdr.max_luma };
     pl_hash_merge(&p->lut_sig, v.u);
     // min luma depends only on the max luma and profile
+
+    // Hash all parameters affecting the generated VCGT lut
+    p->vcgt_sig = UINT64_C(0xfa886c322ad29caf);
+    pl_hash_merge(&p->vcgt_sig, icc->signature);
+    pl_hash_merge(&p->vcgt_sig, params->vcgt_size);
 
     // Backwards compatibility with old caching API
     if ((params->cache_save || params->cache_load) && !params->cache) {
@@ -605,6 +630,8 @@ bool pl_icc_update(pl_log log, pl_icc_object *out_icc,
     bool compat = params->intent     == icc->params.intent    &&
                   params->max_luma   == icc->params.max_luma  &&
                   params->force_bpc  == icc->params.force_bpc &&
+                  params->use_vcgt   == icc->params.use_vcgt  &&
+                  params->vcgt_size  == icc->params.vcgt_size &&
                   size_r             == icc->params.size_r    &&
                   size_g             == icc->params.size_g    &&
                   size_b             == icc->params.size_b;
@@ -681,6 +708,22 @@ static void fill_lut(void *datap, const struct sh_lut_params *params, bool decod
     pl_log_cpu_time(p->log, after_transform, pl_clock_now(), "generating ICC 3DLUT");
     cmsDeleteTransform(tf);
     pl_free(tmp);
+}
+
+static void fill_vcgt_lut(void *datap, const struct sh_lut_params *params)
+{
+    pl_icc_object icc = params->priv;
+    struct icc_priv *p = PL_PRIV(icc);
+    int vcgt_size = params->width;
+
+    uint16_t *data = (uint16_t *)datap;
+    for (int i = 0; i < vcgt_size; i++) {
+        uint16_t value = i * 65535 / (vcgt_size - 1);
+        data[i * 4 + 0] = cmsEvalToneCurve16(p->vcgt[0], value);
+        data[i * 4 + 1] = cmsEvalToneCurve16(p->vcgt[1], value);
+        data[i * 4 + 2] = cmsEvalToneCurve16(p->vcgt[2], value);
+        data[i * 4 + 3] = 0;
+    }
 }
 
 static void fill_decode(void *datap, const struct sh_lut_params *params)
@@ -801,6 +844,48 @@ void pl_icc_encode(pl_shader sh, pl_icc_object icc, pl_shader_obj *lut_obj)
          SH_FLOAT(1.0f / icc->gamma),
          SH_FLOAT(p->a), SH_FLOAT(p->b / p->a),
          lut);
+}
+
+void pl_icc_vcgt(pl_shader sh, pl_icc_object icc, pl_shader_obj *lut_obj) {
+    struct icc_priv *p = PL_PRIV(icc);
+    if (!sh_require(sh, PL_SHADER_SIG_COLOR, 0, 0))
+        return;
+
+    if (!use_vcgt(icc))
+        return;
+    
+    pl_fmt fmt = pl_find_fmt(SH_GPU(sh), PL_FMT_UNORM, 4, 16, 16, PL_FMT_CAP_LINEAR);
+    if (!fmt) {
+        SH_FAIL(sh, "Failed finding ICC VCGT texture format!");
+        return;
+    }
+
+    ident_t lut = sh_lut(sh, sh_lut_params(
+        .object     = lut_obj,
+        .var_type   = PL_VAR_FLOAT,
+        .method     = SH_LUT_LINEAR,
+        .fmt        = fmt,
+        .width      = icc->params.vcgt_size,
+        .comps      = 4,
+        .signature  = p->vcgt_sig,
+        .fill       = fill_vcgt_lut,
+        .priv       = (void *) icc,
+    ));
+
+    if (!lut) {
+        SH_FAIL(sh, "pl_icc_vcgt: failed generating VCGT LUT object");
+        return;
+    }
+
+    sh_describe(sh, "ICC VCGT");
+    GLSL("// pl_icc_vcgt                    \n"
+         "{                                 \n"
+         "color.rgb = max(color.rgb, 0.0);  \n"
+         "color.r = "$"(color.r).r;         \n"
+         "color.g = "$"(color.g).g;         \n"
+         "color.b = "$"(color.b).b;         \n"
+         "}                                 \n",
+         lut, lut, lut);
 }
 
 #else // !PL_HAVE_LCMS
