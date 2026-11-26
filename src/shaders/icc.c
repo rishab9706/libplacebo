@@ -444,6 +444,8 @@ static bool icc_init(struct pl_icc_object_t *icc)
     if (!detect_csp(icc))
         return false;
     infer_clut_size(icc);
+    if (params->vcgt_size <= 0 || params->vcgt_size > 1024)
+        params->vcgt_size = 256;
 
     // Create approximation profile. Use a tone-curve based on a BT.1886-style
     // pure power curve, with an approximation gamma matched to the ICC
